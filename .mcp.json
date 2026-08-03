@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "kite_gateway": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/kite_gateway/server.py"]
+    },
+    "india_price": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/india_price/server.py"]
+    },
+    "india_filings": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/india_filings/server.py"]
+    },
+    "india_macro": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/india_macro/server.py"]
+    },
+    "india_news": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/india_news/server.py"]
+    }
+  }
+}

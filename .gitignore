@@ -1,0 +1,19 @@
+# --- user data: never commit (see docs/vision.md §5 — Non-negotiables) ---
+notes.md
+preferences.md
+portfolio.md
+workspaces/
+results/
+data/
+.env
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+logs/
+
+# --- macOS ---
+.DS_Store

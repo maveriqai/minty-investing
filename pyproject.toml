@@ -1,0 +1,27 @@
+[project]
+name = "minty-investing"
+version = "0.1.0"
+description = "Minty Investing — local-first research & portfolio-monitoring tool for Indian retail equity investors (MaverIQ AI)"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.6.0,<2",
+    "httpx>=0.28",
+    "pandas>=2.2",
+    "yfinance>=1.2.0",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: hits live external APIs; run deliberately with -m network"]
+addopts = "-m 'not network'"
