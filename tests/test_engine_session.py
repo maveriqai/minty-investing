@@ -145,8 +145,10 @@ class _FakeSession:
     def __init__(self, chunks, result):
         self._chunks = chunks
         self.last_result = result
+        self.received_prompts: list[str] = []
 
     async def send(self, prompt: str):
+        self.received_prompts.append(prompt)
         for chunk in self._chunks:
             yield chunk
 
@@ -163,3 +165,50 @@ def test_run_turn_reports_error_kind_to_stderr_on_failed_turn(capsys):
     session = _FakeSession([], EngineResult(ok=False, text=None, error_kind="session_limit", raw=None))
     asyncio.run(_run_turn(session, "hi"))
     assert "session_limit" in capsys.readouterr().err
+
+
+def test_run_turn_without_workspace_sends_prompt_unmodified_and_prints_no_note(capsys):
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+    asyncio.run(_run_turn(session, "hi"))
+    assert session.received_prompts == ["hi"]
+    assert "workspace" not in capsys.readouterr().out
+
+
+def test_run_turn_with_workspace_injects_exact_path_into_the_prompt(tmp_path, capsys):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "results").mkdir()
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+
+    assert len(session.received_prompts) == 1
+    sent = session.received_prompts[0]
+    assert str(tmp_path) in sent
+    assert "scan RELIANCE" in sent
+    assert "not something to create yourself" in sent
+
+
+def test_run_turn_with_workspace_reports_no_files_changed(tmp_path, capsys):
+    (tmp_path / "results").mkdir()
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+
+    assert f"[workspace {tmp_path.name}: no files changed this turn]" in capsys.readouterr().out
+
+
+def test_run_turn_with_workspace_reports_files_that_actually_changed(tmp_path, capsys):
+    (tmp_path / "results").mkdir()
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    async def _send_and_write(prompt):
+        (tmp_path / "results" / "written_during_turn.md").write_text("evidence")
+        for chunk in ["ok"]:
+            yield chunk
+
+    session.send = _send_and_write
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+
+    out = capsys.readouterr().out
+    assert "files changed" in out
+    assert "written_during_turn.md" in out
