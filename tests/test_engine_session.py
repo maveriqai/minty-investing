@@ -13,6 +13,7 @@ verified against.
 
 import asyncio
 
+import engine.interactive as interactive_module
 from engine.harnesses.base import EngineResult
 from engine.harnesses.claude_agent_sdk import ClaudeSession, _wait_for_mcp_servers_ready
 from engine.interactive import _run_turn
@@ -153,62 +154,124 @@ class _FakeSession:
             yield chunk
 
 
-def test_run_turn_prints_streamed_chunks_with_trailing_newline(capsys):
+def _isolate_watch_roots(tmp_path, monkeypatch):
+    """`_run_turn` always snapshots FIXED_WATCH_ROOTS — point it at a fake
+    repo layout under tmp_path instead of the real one, so these tests
+    don't depend on (or get confused by) this repo's actual data/results/
+    workspaces contents."""
+    data_dir = tmp_path / "data"
+    results_dir = tmp_path / "results"
+    workspaces_dir = tmp_path / "workspaces"
+    for d in (data_dir, results_dir, workspaces_dir):
+        d.mkdir()
+    monkeypatch.setattr(interactive_module, "FIXED_WATCH_ROOTS", [data_dir, results_dir, workspaces_dir])
+    return workspaces_dir
+
+
+def test_run_turn_prints_streamed_chunks_with_trailing_newline(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
     session = _FakeSession(
         ["Hello", " world"], EngineResult(ok=True, text="Hello world", error_kind=None, raw=None)
     )
     asyncio.run(_run_turn(session, "hi"))
-    assert capsys.readouterr().out == "Hello world\n"
+    assert "Hello world" in capsys.readouterr().out
 
 
-def test_run_turn_reports_error_kind_to_stderr_on_failed_turn(capsys):
+def test_run_turn_reports_error_kind_to_stderr_on_failed_turn(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
     session = _FakeSession([], EngineResult(ok=False, text=None, error_kind="session_limit", raw=None))
     asyncio.run(_run_turn(session, "hi"))
     assert "session_limit" in capsys.readouterr().err
 
 
-def test_run_turn_without_workspace_sends_prompt_unmodified_and_prints_no_note(capsys):
+def test_run_turn_without_workspace_sends_prompt_unmodified(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
     asyncio.run(_run_turn(session, "hi"))
     assert session.received_prompts == ["hi"]
-    assert "workspace" not in capsys.readouterr().out
 
 
-def test_run_turn_with_workspace_injects_exact_path_into_the_prompt(tmp_path, capsys):
-    (tmp_path / "data").mkdir()
-    (tmp_path / "results").mkdir()
+def test_run_turn_with_workspace_injects_exact_path_into_the_prompt(tmp_path, monkeypatch, capsys):
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "test-scan"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=workspace_root))
 
     assert len(session.received_prompts) == 1
     sent = session.received_prompts[0]
-    assert str(tmp_path) in sent
+    assert str(workspace_root) in sent
     assert "scan RELIANCE" in sent
     assert "not something to create yourself" in sent
 
 
-def test_run_turn_with_workspace_reports_no_files_changed(tmp_path, capsys):
-    (tmp_path / "results").mkdir()
+def test_run_turn_reports_no_files_changed_when_nothing_changed(tmp_path, monkeypatch, capsys):
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "test-scan"
+    (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=workspace_root))
 
-    assert f"[workspace {tmp_path.name}: no files changed this turn]" in capsys.readouterr().out
+    assert "[no files changed this turn]" in capsys.readouterr().out
 
 
-def test_run_turn_with_workspace_reports_files_that_actually_changed(tmp_path, capsys):
-    (tmp_path / "results").mkdir()
+def test_run_turn_reports_files_that_changed_but_match_no_known_skill(tmp_path, monkeypatch, capsys):
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "test-scan"
+    (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
     async def _send_and_write(prompt):
-        (tmp_path / "results" / "written_during_turn.md").write_text("evidence")
+        (workspace_root / "results" / "written_during_turn.md").write_text("evidence")
         for chunk in ["ok"]:
             yield chunk
 
     session.send = _send_and_write
-    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=tmp_path))
+    # skill_names=[] (or a skill declaring nothing) -> nothing to match against,
+    # so the change is reported but unclassified.
+    asyncio.run(_run_turn(session, "scan RELIANCE", workspace_root=workspace_root, skill_names=[]))
 
     out = capsys.readouterr().out
-    assert "files changed" in out
+    assert "not matching any known skill's expected output" in out
     assert "written_during_turn.md" in out
+
+
+def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, monkeypatch, capsys):
+    import engine.skills as skills_module
+
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "test-scan"
+    (workspace_root / "results").mkdir(parents=True)
+
+    skills_root = tmp_path / ".claude" / "skills"
+    skill_dir = skills_root / "red-flag-scan"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: red-flag-scan\ndescription: test\n'
+        'expected_outputs:\n  - "workspaces/{workspace}/results/red_flags_*_{date}.json"\n---\n'
+    )
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
+
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    async def _send_and_write(prompt):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        (workspace_root / "results" / f"red_flags_RELIANCE_{today}.json").write_text("{}")
+        for chunk in ["ok"]:
+            yield chunk
+
+    session.send = _send_and_write
+    asyncio.run(
+        _run_turn(session, "scan RELIANCE", workspace_root=workspace_root, skill_names=["red-flag-scan"])
+    )
+
+    out = capsys.readouterr().out
+    assert "matches red-flag-scan's expected output" in out
+    assert "red_flags_RELIANCE_" in out

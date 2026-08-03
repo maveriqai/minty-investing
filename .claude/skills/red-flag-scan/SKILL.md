@@ -1,6 +1,8 @@
 ---
 name: red-flag-scan
 description: Use when the user wants a governance/safety-focused check on one specific held or watchlist stock — e.g. "any red flags on STOCKA", "check XYZ for governance issues before I add", "should I be worried about this holding". Not for a portfolio-wide check (use portfolio-health-check).
+expected_outputs:
+  - "workspaces/{workspace}/results/red_flags_*_{date}.json"
 ---
 
 # Red-Flag Scan

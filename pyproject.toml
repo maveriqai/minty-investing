@@ -10,6 +10,7 @@ dependencies = [
     "yfinance>=1.2.0",
     "python-dotenv>=1.0",
     "claude-agent-sdk>=0.2.126,<0.3",
+    "pyyaml>=6.0,<7",
 ]
 
 [dependency-groups]

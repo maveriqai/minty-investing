@@ -23,6 +23,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 WORKSPACES_ROOT = REPO_ROOT / "workspaces"
 
+# Always watched, every turn, regardless of whether a workspace is active —
+# covers both workspace-scoped skills (workspaces/<name>/...) and any
+# repo-root-scoped skill's own data/results, without the engine needing to
+# know which kind of skill was invoked. See engine/skills.py for the
+# per-skill pattern matching this feeds into.
+FIXED_WATCH_ROOTS = [REPO_ROOT / "data", REPO_ROOT / "results", WORKSPACES_ROOT]
+
 
 def resolve_workspace(name: str) -> Path:
     """Creates `workspaces/<name>/{data,results}` if missing — idempotent,
@@ -42,5 +49,23 @@ def snapshot(root: Path) -> dict[str, float]:
 def changed_since(root: Path, before: dict[str, float]) -> list[str]:
     """Files under `root` that are new or modified since `before` was taken."""
     after = snapshot(root)
+    changed = [path for path, mtime in after.items() if path not in before or mtime > before[path]]
+    return sorted(changed)
+
+
+def snapshot_all(roots: list[Path]) -> dict[str, float]:
+    """`snapshot()` merged across several roots — missing directories are
+    skipped, not an error (e.g. `results/` may not exist until a skill
+    first creates it)."""
+    combined: dict[str, float] = {}
+    for root in roots:
+        if root.is_dir():
+            combined.update(snapshot(root))
+    return combined
+
+
+def changed_since_all(roots: list[Path], before: dict[str, float]) -> list[str]:
+    """`changed_since()` merged across several roots."""
+    after = snapshot_all(roots)
     changed = [path for path, mtime in after.items() if path not in before or mtime > before[path]]
     return sorted(changed)

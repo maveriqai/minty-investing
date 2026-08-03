@@ -10,15 +10,19 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from engine import skills
 from engine.config import build_tool_config
-from engine.harnesses.base import Harness
+from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
-from engine.workspace import changed_since, resolve_workspace, snapshot
+from engine.workspace import FIXED_WATCH_ROOTS, changed_since_all, resolve_workspace, snapshot_all
 
 _EXIT_COMMANDS = {"exit", "quit", ":q"}
 _WORKSPACE_PREFIX = "/workspace "
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def _augment_with_workspace(prompt: str, workspace_root: Path) -> str:
@@ -32,8 +36,37 @@ def _augment_with_workspace(prompt: str, workspace_root: Path) -> str:
     )
 
 
-async def _run_turn(session, prompt: str, *, workspace_root: Path | None = None) -> None:
-    before = snapshot(workspace_root) if workspace_root is not None else None
+def _report_changed_files(changed: list[str], skill_names: list[str], workspace_name: str | None) -> None:
+    """Factual, generic report — doesn't know or guess which skill (if any)
+    the turn invoked, just checks whatever changed against every loaded
+    skill's declared `expected_outputs` (see engine/skills.py). A skill
+    that declares nothing is silently not checked, not flagged as missing.
+    """
+    if not changed:
+        print("[no files changed this turn]")
+        return
+
+    today = datetime.now(_IST).date().isoformat()
+    matched_files: set[str] = set()
+    for name in skill_names:
+        matches = skills.match_changed_files(name, changed, workspace_name=workspace_name, date=today)
+        if matches:
+            matched_files.update(matches)
+            print(f"[matches {name}'s expected output — {', '.join(matches)}]")
+
+    unmatched = [f for f in changed if f not in matched_files]
+    if unmatched:
+        print(f"[other files changed, not matching any known skill's expected output — {', '.join(unmatched)}]")
+
+
+async def _run_turn(
+    session,
+    prompt: str,
+    *,
+    workspace_root: Path | None = None,
+    skill_names: list[str] | None = None,
+) -> None:
+    before = snapshot_all(FIXED_WATCH_ROOTS)
     sent = _augment_with_workspace(prompt, workspace_root) if workspace_root is not None else prompt
     async for chunk in session.send(sent):
         print(chunk, end="", flush=True)
@@ -41,16 +74,13 @@ async def _run_turn(session, prompt: str, *, workspace_root: Path | None = None)
     result = session.last_result
     if result is not None and not result.ok:
         print(f"[turn ended without success: {result.error_kind}]", file=sys.stderr)
-    if workspace_root is not None:
-        changed = changed_since(workspace_root, before)
-        if changed:
-            print(f"[workspace {workspace_root.name}: files changed — {', '.join(changed)}]")
-        else:
-            print(f"[workspace {workspace_root.name}: no files changed this turn]")
+    changed = changed_since_all(FIXED_WATCH_ROOTS, before)
+    _report_changed_files(changed, skill_names or [], workspace_root.name if workspace_root else None)
 
 
 async def _repl(harness: Harness) -> int:
-    tools = build_tool_config()
+    tools: ToolConfig = build_tool_config()
+    skill_names = tools.skills if isinstance(tools.skills, list) else []
     print(
         "Minty — connected. Type a message, 'exit' to quit, "
         "or '/workspace <name>' to set the active workspace."
@@ -77,7 +107,7 @@ async def _repl(harness: Harness) -> int:
                 print(f"[workspace set: {workspace_root}]")
                 continue
             print("minty> ", end="", flush=True)
-            await _run_turn(session, prompt, workspace_root=workspace_root)
+            await _run_turn(session, prompt, workspace_root=workspace_root, skill_names=skill_names)
     return 0
 
 
