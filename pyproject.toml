@@ -9,6 +9,7 @@ dependencies = [
     "pandas>=2.2",
     "yfinance>=1.2.0",
     "python-dotenv>=1.0",
+    "claude-agent-sdk>=0.2.126,<0.3",
 ]
 
 [dependency-groups]
@@ -25,3 +26,7 @@ target-version = "py312"
 testpaths = ["tests"]
 markers = ["network: hits live external APIs; run deliberately with -m network"]
 addopts = "-m 'not network'"
+# engine/ is a real package (unlike mcp/<name>/server.py, which each need
+# importlib workarounds to avoid module-name collisions) — this just needs
+# repo root on sys.path so `from engine import ...` resolves under pytest.
+pythonpath = ["."]
