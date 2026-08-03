@@ -162,12 +162,16 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
         "india_news",
     }
     assert tools.builtin_tools == ["Read", "Write", "Bash"]
+    # Default 1MB SDK buffer crashed live on a real Layer 2 tool response
+    # while porting red-flag-scan — see engine/config.py's _MAX_BUFFER_SIZE.
+    assert tools.max_buffer_size == 10_000_000
 
 
-def test_build_tool_config_skills_empty_when_skills_dir_absent():
-    # skills/ hasn't been ported into this repo yet — must not error.
+def test_build_tool_config_scopes_skills_to_minty_only():
+    # Explicit list, not "all" — "all" also surfaces unrelated global/
+    # user-level skills installed on the host machine.
     tools = config.build_tool_config()
-    assert tools.skills == []
+    assert tools.skills == ["morning-digest", "portfolio-health-check", "red-flag-scan"]
 
 
 @dataclass

@@ -157,21 +157,31 @@ to day, not just sounds good on paper.
 
 Decided so far:
 
-- **Skills: one directory per skill** (`skills/<name>/SKILL.md` +
-  `scripts/`), per the Agent Skills spec. Not a style choice — this is how
-  skill discovery actually works, and it's a clean contribution boundary
-  for Track 2 (a skill PR touches exactly one folder).
-- **No generated view of skills.** The old repo generated a second copy
-  (`.claude/skills/`) via `tools/generate_skill_views.py`, required because
-  Claude Code's own discovery mechanism needed it, and because two
-  harness-specific views (Claude Code's and Codex's, before Codex was
-  retired) had to be reconciled. A real incident there: the two views were
-  once found hand-copied out of sync, including a broken path in one copy.
-  Track 1's engine owns skill loading itself and isn't bound to Claude
-  Code's discovery mechanism, so it can read canonical
-  `skills/<name>/SKILL.md` directly — no build step, no generated copy, no
-  drift risk. Revisit only if a second harness with genuinely different
-  discovery needs gets built.
+- **Skills: one directory per skill** (`SKILL.md` + `scripts/`), per the
+  Agent Skills spec. Not a style choice — this is how skill discovery
+  actually works, and it's a clean contribution boundary for Track 2 (a
+  skill PR touches exactly one folder).
+- **Corrected during the skill-porting pass (previously wrong in this
+  doc): the canonical location is `.claude/skills/<name>/`, not a
+  top-level `skills/<name>/`.** This section originally claimed Track 1's
+  engine "owns skill loading itself and isn't bound to Claude Code's
+  discovery mechanism," so it could read a plain top-level `skills/`
+  directly — a reasonable-sounding narrative that turned out to be false
+  at the plumbing level, not just unverified. Live-tested by dumping a
+  connected session's own `SystemMessage.data["skills"]`: with skill
+  packages under top-level `skills/`, the model saw an unrelated set of
+  host/CLI-bundled skills and *none* of this project's own, despite
+  `ToolConfig.skills` correctly listing them; moving the exact same
+  packages to `.claude/skills/` made them appear immediately.
+  `setting_sources=["project"]` + `skills=[...]` *is* Claude Code's own
+  project-skill discovery — the Agent SDK's transport shells out to the
+  `claude` CLI (see §8), so this mechanism was never actually
+  Minty-controlled, regardless of which process owns the surrounding
+  conversation loop. One canonical copy either way (not the old repo's
+  canonical-plus-generated-view split, and no `tools/generate_skill_views.py`
+  equivalent) — it just lives at the path the mechanism actually reads, not
+  the path a clean-sounding narrative assumed it would. Revisit only if a
+  second harness with genuinely different discovery needs gets built.
 - **No formal skill versioning.** Git history is the version history for a
   skill's content — a SKILL.md changing between commits is a normal code
   change, reviewed the normal way. A SemVer-per-skill scheme would only
@@ -204,9 +214,10 @@ the sole implementation for v1, calling Claude directly via the Agent SDK
 rather than shelling out to an interactive `claude` CLI session. The
 engine owns dispatch, guardrail enforcement (denying the six order tools a
 second time, independent of Layer 1's omission — defense in depth), skill
-loading (canonical `skills/<name>/SKILL.md`, no generated view — see
-above), and, unlike the old repo, real multi-turn session state — the one
-thing that makes this a standalone tool rather than a single-shot script.
+loading (`.claude/skills/<name>/SKILL.md` — see above for why it's not a
+plain top-level `skills/`), and, unlike the old repo, real multi-turn
+session state — the one thing that makes this a standalone tool rather
+than a single-shot script.
 
 **Workspace file layout.** A local directory, never committed:
 root-level `notes.md` / `preferences.md` / `portfolio.md` for durable
