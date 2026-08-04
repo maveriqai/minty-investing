@@ -53,11 +53,17 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 from claude_agent_sdk.types import PreToolUseHookInput
 
 from engine.harnesses.base import EngineResult, ToolConfig
+from engine.skill_tools import build_skill_tools_server
+from engine.tool_capture import save_tool_result
+
+_SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
 # old repo, but a genuine session-limit *hit* (an error_during_execution
@@ -122,9 +128,15 @@ def _build_bash_scope_hook(allowed_prefixes: tuple[str, ...]):
 
 
 def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
-    server_names = list(tools.mcp_servers.keys())
+    skill_names = tools.skills if isinstance(tools.skills, list) else []
+    mcp_servers = dict(tools.mcp_servers)
+    skill_scripts_server = build_skill_tools_server(skill_names)
+    if skill_scripts_server is not None:
+        mcp_servers[_SKILL_SCRIPTS_SERVER_NAME] = skill_scripts_server
+
+    server_names = list(mcp_servers.keys())
     kwargs = {
-        "mcp_servers": tools.mcp_servers,
+        "mcp_servers": mcp_servers,
         # Found live during the interactive-session smoke test: without this,
         # a session also picks up whatever MCP servers are configured
         # globally on the host machine (a personal "claude.ai Notion"
@@ -198,6 +210,19 @@ async def _wait_for_mcp_servers_ready(
         await asyncio.sleep(poll_interval_s)
 
 
+def _tool_result_text(content: Any) -> str | None:
+    """A `ToolResultBlock.content` is `str | list[dict] | None` — flattens the
+    list-of-content-blocks shape (`[{"type": "text", "text": "..."}]`) down
+    to the same plain text a `str` content already is. None if there's no
+    text content to capture (e.g. an image-only or empty result)."""
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    parts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+    return "".join(parts) if parts else None
+
+
 class ClaudeSession:
     """Wraps a connected `ClaudeSDKClient` — multi-turn, holds conversation
     state across calls to `send()` for as long as the session stays open.
@@ -207,14 +232,36 @@ class ClaudeSession:
         self._client = client
         self.last_result: EngineResult | None = None
 
-    async def send(self, prompt: str) -> AsyncIterator[str]:
+    async def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
+        """`workspace_root`, when given, turns on auto-capture: every Layer-2
+        MCP tool result this turn produces is saved to the workspace's
+        `data/` under the same filename its skill's own SKILL.md already
+        documents (see engine/tool_capture.py) — the model no longer has to
+        remember to save it there itself.
+        """
         await self._client.query(prompt)
+        pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
         async for message in self._client.receive_response():
             kind = type(message).__name__
             if kind == "AssistantMessage":
                 for block in message.content:
-                    if type(block).__name__ == "TextBlock":
+                    block_kind = type(block).__name__
+                    if block_kind == "TextBlock":
                         yield block.text
+                    elif block_kind == "ToolUseBlock":
+                        pending_tool_calls[block.id] = (block.name, block.input)
+            elif kind == "UserMessage":
+                if workspace_root is not None:
+                    for block in getattr(message, "content", None) or []:
+                        if type(block).__name__ != "ToolResultBlock" or block.is_error:
+                            continue
+                        call = pending_tool_calls.get(block.tool_use_id)
+                        if call is None:
+                            continue
+                        tool_name, tool_input = call
+                        text = _tool_result_text(block.content)
+                        if text is not None:
+                            save_tool_result(tool_name, tool_input, text, workspace_root)
             elif kind == "ResultMessage":
                 if message.subtype == "success":
                     self.last_result = EngineResult(
@@ -258,7 +305,7 @@ class ClaudeAgentSDKHarness:
         options = _build_options(tools)
         client = ClaudeSDKClient(options=options)
         await client.connect()
-        await _wait_for_mcp_servers_ready(client, set(tools.mcp_servers.keys()))
+        await _wait_for_mcp_servers_ready(client, set(options.mcp_servers.keys()))
         session = ClaudeSession(client)
         try:
             yield session

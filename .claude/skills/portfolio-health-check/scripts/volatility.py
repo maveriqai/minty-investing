@@ -18,6 +18,13 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _unwrap_envelope(payload: object) -> object:
+    """Unwrap a {"source","as_of","data"} envelope if present; already-bare data passes through unchanged."""
+    if isinstance(payload, dict) and "data" in payload:
+        return payload["data"]
+    return payload
+
+
 def compute(bars: list[dict]) -> dict:
     clean = [
         b for b in bars
@@ -69,7 +76,7 @@ def compute(bars: list[dict]) -> dict:
 
 if __name__ == "__main__":
     src = Path(sys.argv[1])
-    bars = json.loads(src.read_text())
+    bars = _unwrap_envelope(json.loads(src.read_text()))
     result = compute(bars)
     result["source"] = "india_price.get_daily_ohlcv"
     result["as_of"] = datetime.now().strftime("%Y-%m-%d")

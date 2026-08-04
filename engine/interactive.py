@@ -68,7 +68,7 @@ async def _run_turn(
 ) -> None:
     before = snapshot_all(FIXED_WATCH_ROOTS)
     sent = _augment_with_workspace(prompt, workspace_root) if workspace_root is not None else prompt
-    async for chunk in session.send(sent):
+    async for chunk in session.send(sent, workspace_root=workspace_root):
         print(chunk, end="", flush=True)
     print()
     result = session.last_result

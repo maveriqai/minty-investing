@@ -30,12 +30,34 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
 
 
 def test_build_options_passes_mcp_servers_and_skills_through_unchanged():
-    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["morning-digest"])
+    # No skill here declares deterministic_scripts, so no skill_scripts
+    # server is added — see the two tests below for that behavior.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
     assert options.mcp_servers == FAKE_MCP_SERVERS
-    assert options.skills == ["morning-digest"]
+    assert options.skills == []
     assert options.setting_sources == ["project"]
+
+
+def test_build_options_adds_skill_scripts_server_when_a_skill_declares_scripts():
+    # morning-digest's real SKILL.md declares deterministic_scripts (see
+    # .claude/skills/morning-digest/SKILL.md) — this reads the real
+    # frontmatter, not a fake, since the whole point is proving the wiring
+    # from a real skill's declaration into the actual options object.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["morning-digest"])
+    options = cas._build_options(tools)
+
+    assert set(FAKE_MCP_SERVERS).issubset(options.mcp_servers)
+    assert "skill_scripts" in options.mcp_servers
+    assert options.skills == ["morning-digest"]
+
+
+def test_build_options_omits_skill_scripts_server_when_no_skill_declares_scripts():
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+
+    assert "skill_scripts" not in options.mcp_servers
 
 
 def test_build_options_defaults_leave_tools_and_buffer_size_unset():

@@ -17,7 +17,8 @@ even if the nesting shifts.
 
 Usage:
   uv run python surveillance_check.py data/holdings_2026-07-09.json \
-    data/surveillance_asm_2026-07-09.json data/surveillance_gsm_2026-07-09.json
+    data/surveillance_asm_2026-07-09.json data/surveillance_gsm_2026-07-09.json \
+    2026-07-09
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ def compute(holdings: list[dict], asm_payload: object, gsm_payload: object) -> d
 
 if __name__ == "__main__":
     holdings_path, asm_path, gsm_path = (Path(p) for p in sys.argv[1:4])
+    date_tag = sys.argv[4]
     holdings = json.loads(holdings_path.read_text())
     asm_payload = json.loads(asm_path.read_text())
     gsm_payload = json.loads(gsm_path.read_text())
@@ -63,11 +65,6 @@ if __name__ == "__main__":
     result["source"] = "india_filings.get_surveillance_list (ASM, GSM)"
     result["input_files"] = [holdings_path.name, asm_path.name, gsm_path.name]
 
-    # Use the ASM file's date, not the holdings file's — the holdings
-    # snapshot can be a stale fallback (see jobs/README.md's known
-    # limitation) while the surveillance data is always fetched fresh for
-    # today's run.
-    date_tag = asm_path.stem.replace("surveillance_asm_", "")
     out_dir = Path.cwd() / "results"
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / f"surveillance_flags_{date_tag}.json"

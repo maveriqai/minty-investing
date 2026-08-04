@@ -52,6 +52,28 @@ def load_expected_outputs(skill_name: str) -> list[str]:
     return list(frontmatter.get("expected_outputs") or [])
 
 
+def load_deterministic_scripts(skill_name: str) -> list[dict]:
+    """Each skill's own declared deterministic scripts — the actual
+    compute-and-save steps its SKILL.md's procedure describes in prose.
+
+    Empty list if the skill doesn't exist or declares nothing. Shape per
+    entry (see engine/skill_tools.py, which turns these into typed,
+    per-skill tool calls):
+
+        {"id": "red_flag_check", "path": "scripts/red_flag_check.py",
+         "args": [{"name": "symbol", "kind": "flag", "flag": "--symbol",
+                    "required": True, "description": "..."}, ...]}
+
+    `kind` is "flag" (emitted as "--flag value") or "positional" (emitted
+    in declared order); no ported script currently mixes both kinds.
+    """
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return []
+    frontmatter = _parse_frontmatter(skill_md.read_text())
+    return list(frontmatter.get("deterministic_scripts") or [])
+
+
 def resolve_pattern(pattern: str, *, workspace_name: str | None, date: str) -> str:
     """Substitutes `{date}` always, `{workspace}` only if a workspace name
     is given. A pattern still containing a literal `{workspace}` after this

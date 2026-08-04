@@ -7,6 +7,7 @@ from pathlib import Path
 
 import engine.skills as skills_module
 from engine.skills import (
+    load_deterministic_scripts,
     load_expected_outputs,
     match_changed_files,
     resolve_pattern,
@@ -42,6 +43,42 @@ def test_load_expected_outputs_empty_when_skill_declares_nothing(tmp_path, monke
 def test_load_expected_outputs_empty_when_skill_does_not_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
     assert load_expected_outputs("nonexistent") == []
+
+
+def test_load_deterministic_scripts_reads_declared_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "red-flag-scan",
+        "name: red-flag-scan\ndescription: test\n"
+        "deterministic_scripts:\n"
+        "  - id: red_flag_check\n"
+        "    path: scripts/red_flag_check.py\n"
+        "    args:\n"
+        "      - {name: symbol, kind: flag, flag: \"--symbol\", required: true}",
+    )
+
+    scripts = load_deterministic_scripts("red-flag-scan")
+
+    assert scripts == [
+        {
+            "id": "red_flag_check",
+            "path": "scripts/red_flag_check.py",
+            "args": [{"name": "symbol", "kind": "flag", "flag": "--symbol", "required": True}],
+        }
+    ]
+
+
+def test_load_deterministic_scripts_empty_when_skill_declares_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(tmp_path, "no-scripts", "name: no-scripts\ndescription: test")
+
+    assert load_deterministic_scripts("no-scripts") == []
+
+
+def test_load_deterministic_scripts_empty_when_skill_does_not_exist(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    assert load_deterministic_scripts("nonexistent") == []
 
 
 def test_resolve_pattern_substitutes_date_always():

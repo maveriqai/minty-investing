@@ -4,6 +4,24 @@ description: Use when the user asks for today's portfolio/market digest or brief
 expected_outputs:
   - "workspaces/{workspace}/results/digest_{date}.json"
   - "workspaces/{workspace}/results/digest_{date}.md"
+deterministic_scripts:
+  - id: digest_math
+    path: scripts/digest_math.py
+    args:
+      - {name: holdings_file, kind: positional, required: true, description: "Path (relative to the workspace) to the saved holdings snapshot, e.g. data/holdings_<date>.json"}
+      - {name: quotes_file, kind: positional, required: false, description: "Path to the saved live-quotes snapshot, e.g. data/live_quotes_<date>.json — omit only if it couldn't be fetched"}
+  - id: surveillance_check
+    path: scripts/surveillance_check.py
+    args:
+      - {name: holdings_file, kind: positional, required: true, description: "Path to the saved holdings snapshot"}
+      - {name: asm_file, kind: positional, required: true, description: "Path to the saved ASM surveillance-list envelope"}
+      - {name: gsm_file, kind: positional, required: true, description: "Path to the saved GSM surveillance-list envelope"}
+      - {name: date_tag, kind: positional, required: true, description: "Today's date tag, YYYY-MM-DD — used for the output filename, not derived from the input filenames"}
+  - id: materiality_check
+    path: scripts/materiality_check.py
+    args:
+      - {name: digest_file, kind: positional, required: true, description: "Path to the saved results/digest_<date>.json from the digest_math step"}
+      - {name: date_tag, kind: positional, required: true, description: "The digest's date tag, YYYY-MM-DD"}
 ---
 
 # Morning Digest
@@ -55,8 +73,9 @@ exist).
    call `kite_gateway.get_holdings` — read-only by construction, not just
    policy: the order-placing/-modifying tools (`place_order`,
    `modify_order`, `cancel_order`, GTT tools) aren't in `kite_gateway`'s
-   tool surface at all (see docs/vision.md §5). Save the raw result to the
-   workspace's `data/holdings_<YYYY-MM-DD>.json`.
+   tool surface at all (see docs/vision.md §5). The engine automatically
+   saves the raw result to the workspace's `data/holdings_<YYYY-MM-DD>.json`
+   as soon as the call returns — no separate save step.
 
    The shape is already known: each entry has `tradingsymbol`, `exchange`,
    `isin`, `quantity`, `average_price`, `last_price`, `close_price`, `pnl`
@@ -66,13 +85,17 @@ exist).
 
 4. **Fetch an index snapshot.** Call
    `india_price.get_quote(["^NSEI", "^BSESN", "^NSEBANK", "^INDIAVIX"])`
-   for NIFTY 50, SENSEX, BANKNIFTY, and INDIA VIX last-price/day-change.
-   Save to `data/index_quote_<date>.json`.
+   for NIFTY 50, SENSEX, BANKNIFTY, and INDIA VIX last-price/day-change. The
+   engine automatically saves this to `data/index_quote_<date>.json` — it
+   recognizes an index-only call by the `^`-prefixed tickers, so this stays
+   separate from step 4b's holdings quotes below even though both call the
+   same tool.
 
 4b. **Fetch live prices for every held symbol.** Call
    `india_price.get_quote(symbols)` with the full list of distinct
    `tradingsymbol`s from step 3's holdings (one batched call, not a loop).
-   Save to `data/live_quotes_<date>.json`. This is what keeps today's
+   The engine automatically saves this to `data/live_quotes_<date>.json`.
+   This is what keeps today's
    per-position move accurate even when Kite's own cached
    `last_price`/`close_price`/`day_change_percentage` fields are stale —
    `india_price` needs no Kite session and is always fetched fresh in this
@@ -82,13 +105,13 @@ exist).
    automatically and reports which symbols it fell back for.
 
 5. **Fetch FII/DII flow.** Call `india_filings.get_fii_dii_flows` (no
-   symbol arg — market-wide). Save to `data/fii_dii_<date>.json`.
+   symbol arg — market-wide). The engine automatically saves this to
+   `data/fii_dii_<date>.json`.
 
-6. **Run the computation, not the model.** From the workspace directory:
-
-   ```
-   uv run python .claude/skills/morning-digest/scripts/digest_math.py data/holdings_<date>.json data/live_quotes_<date>.json
-   ```
+6. **Run the computation, not the model** — call the `run_digest_math`
+   tool (not Bash) with `workspace_root` set to the exact active-workspace
+   path, `holdings_file` set to `data/holdings_<date>.json`, and
+   `quotes_file` set to `data/live_quotes_<date>.json`.
 
    Writes `results/digest_<date>.json` — total value/invested/P&L, today's
    portfolio P&L and %, top concentration, today's gainers/losers by %, the
@@ -102,14 +125,16 @@ exist).
 
 7. **Surveillance check, bounded.** Call
    `india_filings.get_surveillance_list("ASM")` and `("GSM")` — don't call
-   NSE per-symbol for this. Save the two raw results with the `Write` tool
-   to `data/surveillance_asm_<date>.json` and
-   `data/surveillance_gsm_<date>.json` — write the JSON content directly
-   rather than re-fetching or shell-copying it. Then run:
-
-   ```
-   uv run python .claude/skills/morning-digest/scripts/surveillance_check.py data/holdings_<date>.json data/surveillance_asm_<date>.json data/surveillance_gsm_<date>.json
-   ```
+   NSE per-symbol for this. The engine automatically saves the two raw
+   results to `data/surveillance_asm_<date>.json` and
+   `data/surveillance_gsm_<date>.json` as each call returns — no separate
+   save step. Then call the `run_surveillance_check` tool (not Bash) with
+   `workspace_root`,
+   `holdings_file`/`asm_file`/`gsm_file` set to those three saved paths, and
+   `date_tag` set to `<date>` — the output filename comes from this
+   argument, not from parsing the input filenames, so it stays
+   `surveillance_flags_<date>.json` regardless of what you named the saved
+   ASM/GSM files.
 
    Writes `results/surveillance_flags_<date>.json` with `asm_hits`/`gsm_hits`
    — read the flags from there, never intersect the surveillance lists
@@ -136,27 +161,27 @@ exist).
    Checking every holding every morning would also hot-loop NSE's endpoint
    — see docs/vision.md §5's "be polite to data sources" rule — so this is
    a deliberate, bounded subset, not full coverage; say so if the user asks
-   why a smaller holding's news isn't in the brief. Save each symbol's raw
-   result with the `Write` tool to `data/announcements_<symbol>_<date>.json`
-   — step 8b needs it on disk to score it.
+   why a smaller holding's news isn't in the brief. The engine automatically
+   saves each symbol's raw result to `data/announcements_<symbol>_<date>.json`
+   as each call returns — step 8b reads it from there, no separate save
+   step needed.
 
 8b. **News fetch, same bounded set.** For each symbol in step 8's bounded
     set, call `india_news.get_news(symbol, limit=5)` using the raw NSE
     tradingsymbol as the query. Known limitation, not hidden: `india_news`'s
     own docstring recommends a company name for best results; the raw
     symbol is the pragmatic choice here (avoids a second lookup step) and
-    may be noisier for less-recognizable tickers. Save each result via the
-    `Write` tool to `data/news_<symbol>_<date>.json`. Cost, stated
+    may be noisier for less-recognizable tickers. The engine automatically
+    saves each result to `data/news_<symbol>_<date>.json` as each call
+    returns. Cost, stated
     explicitly: up to ~20 `get_announcements` calls and up to ~20
     `india_news.get_news` calls, each throttled by their respective shared
     fetchers (≥2s between requests) → roughly a minute or more of added
     wall-clock time. Acceptable for an on-demand morning check with no tight
     time budget, but a real cost — worth watching if it ever becomes a
-    problem. Then run:
-
-    ```
-    uv run python .claude/skills/morning-digest/scripts/materiality_check.py results/digest_<date>.json <date>
-    ```
+    problem. Then call the `run_materiality_check` tool (not Bash) with
+    `workspace_root`, `digest_file` set to `results/digest_<date>.json`,
+    and `date_tag` set to `<date>`.
 
     Writes `results/materiality_flags_<date>.json` — a ranked list of
     sector-aware materiality flags (severity, matched signal, a

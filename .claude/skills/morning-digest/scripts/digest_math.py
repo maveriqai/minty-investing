@@ -29,6 +29,13 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _unwrap_envelope(payload: object) -> object:
+    """Unwrap a {"source","as_of","data"} envelope if present; already-bare data passes through unchanged."""
+    if isinstance(payload, dict) and "data" in payload:
+        return payload["data"]
+    return payload
+
+
 def _quote_lookup(quotes: list[dict]) -> dict[str, dict]:
     """Map bare tradingsymbol (e.g. "STOCKA") -> quote dict, skipping errors."""
     lookup = {}
@@ -122,11 +129,11 @@ def compute(holdings: list[dict], quotes: list[dict] | None = None) -> dict:
 
 if __name__ == "__main__":
     src = Path(sys.argv[1])
-    holdings = json.loads(src.read_text())
+    holdings = _unwrap_envelope(json.loads(src.read_text()))
     quotes = None
     if len(sys.argv) > 2:
         quotes_path = Path(sys.argv[2])
-        quotes = json.loads(quotes_path.read_text())
+        quotes = _unwrap_envelope(json.loads(quotes_path.read_text()))
     result = compute(holdings, quotes)
     result["source"] = (
         "kite.get_holdings (quantity/avg_price) + india_price.get_quote (live price)"

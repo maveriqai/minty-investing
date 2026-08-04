@@ -148,7 +148,7 @@ class _FakeSession:
         self.last_result = result
         self.received_prompts: list[str] = []
 
-    async def send(self, prompt: str):
+    async def send(self, prompt: str, *, workspace_root=None):
         self.received_prompts.append(prompt)
         for chunk in self._chunks:
             yield chunk
@@ -224,7 +224,7 @@ def test_run_turn_reports_files_that_changed_but_match_no_known_skill(tmp_path, 
     (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt):
+    async def _send_and_write(prompt, *, workspace_root=None):
         (workspace_root / "results" / "written_during_turn.md").write_text("evidence")
         for chunk in ["ok"]:
             yield chunk
@@ -258,7 +258,7 @@ def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, mo
 
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt):
+    async def _send_and_write(prompt, *, workspace_root=None):
         from datetime import datetime
         from zoneinfo import ZoneInfo
 

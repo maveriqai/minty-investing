@@ -3,6 +3,15 @@ name: portfolio-health-check
 description: Use when the user asks for a portfolio-wide health check, concentration review, or overall winners/losers across their real brokerage holdings — e.g. "how's my portfolio doing", "am I too concentrated in anything", "what are my biggest winners/losers". Not for single-stock research (no portfolio context needed) or order placement (out of scope by policy).
 expected_outputs:
   - "workspaces/{workspace}/results/health_check_{date}.json"
+deterministic_scripts:
+  - id: health_check
+    path: scripts/health_check.py
+    args:
+      - {name: holdings_file, kind: positional, required: true, description: "Path (relative to the workspace) to the saved holdings snapshot, e.g. data/holdings_<date>.json"}
+  - id: volatility
+    path: scripts/volatility.py
+    args:
+      - {name: ohlcv_file, kind: positional, required: true, description: "Path (relative to the workspace) to the saved 1yr OHLCV bars, e.g. data/<symbol>_ohlcv_1y.json"}
 ---
 
 # Portfolio Health Check
@@ -27,14 +36,14 @@ regardless of which broker it came from.
 2. **Fetch real holdings from the connected broker.** Currently
    `kite_gateway` — call `kite_gateway.get_holdings` (read-only by
    construction: the order-placing/-modifying tools aren't in
-   `kite_gateway`'s tool surface at all, see docs/vision.md §5). Save the
-   raw result to `data/holdings_<YYYY-MM-DD>.json` in the workspace.
+   `kite_gateway`'s tool surface at all, see docs/vision.md §5). The engine
+   automatically saves the raw result to `data/holdings_<YYYY-MM-DD>.json`
+   in the workspace as soon as the call returns — no separate save step.
 
-3. **Run the computation, not the model.** From the workspace directory:
-
-   ```
-   uv run python <path-to-this-skill>/scripts/health_check.py data/holdings_<date>.json
-   ```
+3. **Run the computation, not the model** — call the `run_health_check`
+   tool (not Bash) with `workspace_root` set to the exact active-workspace
+   path and `holdings_file` set to the path you just saved (e.g.
+   `data/holdings_<date>.json`).
 
    This writes `results/health_check_<date>.json` (total value/invested/P&L,
    per-position weight, top concentration, top winners/losers by P&L%, full
@@ -45,13 +54,12 @@ regardless of which broker it came from.
    roughly 15% portfolio weight, or the user asks about a specific holding,
    offer (don't auto-run) a volatility/drawdown deep dive:
 
-   - Fetch ~1yr daily bars: `india_price.get_daily_ohlcv(symbol, from_date, to_date)`.
-   - Save to `data/<symbol>_ohlcv_1y.json`, then run:
-     ```
-     uv run python <path-to-this-skill>/scripts/volatility.py data/<symbol>_ohlcv_1y.json
-     ```
-     which writes `results/<symbol>_volatility_<date>.json` (1yr return, max
-     drawdown + dates, daily/annualized volatility, worst single day).
+   - Fetch ~1yr daily bars: `india_price.get_daily_ohlcv(symbol, from_date, to_date)`
+     — the engine automatically saves this to `data/<symbol>_ohlcv_1y.json`.
+   - Call the `run_volatility` tool (not Bash) with `workspace_root` and
+     `ohlcv_file` set to that same path — it writes
+     `results/<symbol>_volatility_<date>.json` (1yr return, max drawdown +
+     dates, daily/annualized volatility, worst single day).
    - Whether a concentrated position is "deliberate or should be trimmed" is
      the user's conviction call, not this skill's to make — present the
      numbers (drawdown history, volatility vs. a diversified book) and ask,

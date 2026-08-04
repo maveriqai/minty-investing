@@ -3,6 +3,18 @@ name: red-flag-scan
 description: Use when the user wants a governance/safety-focused check on one specific held or watchlist stock — e.g. "any red flags on STOCKA", "check XYZ for governance issues before I add", "should I be worried about this holding". Not for a portfolio-wide check (use portfolio-health-check).
 expected_outputs:
   - "workspaces/{workspace}/results/red_flags_*_{date}.json"
+deterministic_scripts:
+  - id: red_flag_check
+    path: scripts/red_flag_check.py
+    args:
+      - {name: symbol, kind: flag, flag: "--symbol", required: true, description: "NSE trading symbol, e.g. RELIANCE"}
+      - {name: shareholding, kind: flag, flag: "--shareholding", required: false, description: "Path (relative to the workspace) to the saved shareholding-pattern envelope"}
+      - {name: surveillance_asm, kind: flag, flag: "--surveillance-asm", required: false, description: "Path to the saved ASM surveillance-list envelope"}
+      - {name: surveillance_gsm, kind: flag, flag: "--surveillance-gsm", required: false, description: "Path to the saved GSM surveillance-list envelope"}
+      - {name: announcements, kind: flag, flag: "--announcements", required: false, description: "Path to the saved announcements envelope"}
+      - {name: news, kind: flag, flag: "--news", required: false, description: "Path to the saved news envelope"}
+      - {name: fundamentals, kind: flag, flag: "--fundamentals", required: false, description: "Path to the saved fundamentals envelope"}
+      - {name: as_of, kind: flag, flag: "--as-of", required: false, description: "YYYY-MM-DD, defaults to today if omitted"}
 ---
 
 # Red-Flag Scan
@@ -22,39 +34,40 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
 2. **Resolve the symbol.** `india_price.resolve_symbol` if the user gave a
    company name rather than an exact NSE trading symbol.
 
-3. **Pull the five inputs**, one call each, saving each raw response to
-   `data/<kind>_<SYMBOL>_<date>.json`:
-   - `india_filings.get_shareholding_pattern(symbol)`
-   - `india_filings.get_surveillance_list("ASM")` — market-wide, not
-     per-symbol; reuse the same-day file if another skill already pulled it
-     in this session rather than re-fetching.
-   - `india_filings.get_surveillance_list("GSM")` — same reuse note.
-   - `india_filings.get_announcements(symbol, from_date=<6 months back>)` —
-     bounded window, not the full filing history.
-   - `india_news.get_news(<company name>, limit=10)`
-   - `india_price.get_fundamentals(symbol)`
+3. **Pull the five inputs**, one call each — the engine automatically saves
+   each tool's raw result to the workspace's `data/` as soon as the call
+   returns, so there's no separate save step:
+   - `india_filings.get_shareholding_pattern(symbol)` →
+     `data/shareholding_<SYMBOL>_<date>.json`
+   - `india_filings.get_surveillance_list("ASM")` →
+     `data/surveillance_asm_<date>.json` — market-wide, not per-symbol; safe
+     to call every time, the saved file just gets refreshed.
+   - `india_filings.get_surveillance_list("GSM")` →
+     `data/surveillance_gsm_<date>.json`
+   - `india_filings.get_announcements(symbol, from_date=<6 months back>)` →
+     `data/announcements_<SYMBOL>_<date>.json` — bounded window, not the
+     full filing history.
+   - `india_news.get_news(symbol, limit=10)` → `data/news_<SYMBOL>_<date>.json`
+     — the raw NSE tradingsymbol as the query (not a company name — the
+     auto-captured filename is keyed off the exact argument passed, and this
+     matches morning-digest's own step 8b convention).
+   - `india_price.get_fundamentals(symbol)` →
+     `data/fundamentals_<SYMBOL>_<date>.json`
 
    Any one of these can fail or come back with a `data.error` — that's
    expected (NSE outages, thin small-cap coverage), not a reason to stop.
-   Pass whatever succeeded to the next step; missing inputs just skip their
-   checks.
+   Missing inputs just skip their checks in the next step.
 
-4. **Run the deterministic scan:**
-
-   ```
-   uv run python <path-to-this-skill>/scripts/red_flag_check.py --symbol <SYMBOL> \
-     --shareholding data/shareholding_<SYMBOL>_<date>.json \
-     --surveillance-asm data/surveillance_asm_<date>.json \
-     --surveillance-gsm data/surveillance_gsm_<date>.json \
-     --announcements data/announcements_<SYMBOL>_<date>.json \
-     --news data/news_<SYMBOL>_<date>.json \
-     --fundamentals data/fundamentals_<SYMBOL>_<date>.json
-   ```
-
-   Omit any `--` flag whose input wasn't available — the script handles
-   missing inputs by skipping that check, not by crashing. Writes
+4. **Run the deterministic scan** by calling the `run_red_flag_check` tool
+   — not Bash — with `workspace_root` set to the exact active-workspace
+   path, `symbol`, and whichever of `shareholding`/`surveillance_asm`/
+   `surveillance_gsm`/`announcements`/`news`/`fundamentals` step 3 actually
+   fetched, pointed at the exact `data/<kind>_<SYMBOL>_<date>.json` path
+   documented there. Omit any input that failed or wasn't called — the
+   script handles missing inputs by skipping that check, not by crashing.
+   The tool runs the script itself and writes
    `results/red_flags_<SYMBOL>_<date>.json` with `flags`, `flag_count`,
-   `checks_performed`, `checks_skipped`.
+   `checks_performed`, `checks_skipped`, returning that same JSON to you.
 
 5. **Compose the brief from the script's output, not from re-reading the
    raw tool data.** For each flag: state the category and quote the
