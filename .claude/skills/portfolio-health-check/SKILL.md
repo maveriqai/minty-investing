@@ -67,10 +67,15 @@ regardless of which broker it came from.
      record that verbatim in notes and don't re-push next session.
 
 5. **Update workspace notes.md** per docs/vision.md's Working Notes
-   convention — read current content first, merge, don't overwrite.
-   Include: key findings (total P&L, concentration risk, winners/losers —
-   numbers, not vibes), a pointer to the computed result files, and an
-   open-thread entry for anything the user hasn't decided yet.
+   convention — read the current content first with `Read` (the file may
+   not exist yet on a fresh workspace), merge your update into it, don't
+   overwrite. Include: key findings (total P&L, concentration risk,
+   winners/losers — numbers, not vibes), a pointer to the computed result
+   files, and an open-thread entry for anything the user hasn't decided
+   yet. Then call the `update_workspace_notes` tool (not `Write`) with
+   `workspace_root` and the full merged content — it always saves to
+   `notes.md` in the workspace root, so there's no risk of inventing a
+   different filename or location for it.
 
 6. **Close every output with a Sources footer** (tool + as-of date for each
    number used) and the exact SEBI disclaimer from docs/vision.md §5.

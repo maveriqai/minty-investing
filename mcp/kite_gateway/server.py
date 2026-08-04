@@ -105,6 +105,7 @@ from typing import Any, AsyncIterator
 from zoneinfo import ZoneInfo
 
 import anyio
+import httpx
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -233,6 +234,23 @@ def _write_persisted_session_id(session_id: str) -> None:
         os.close(fd)
 
 
+def _looks_like_invalid_session_error(exc: BaseException) -> bool:
+    """True if `exc` is (or wraps) an HTTP 400/401 from mcp.kite.trade —
+    what a genuinely stale persisted session id looks like, live-verified
+    2026-08-04: Kite rejected one outright rather than just saying "not
+    logged in" (a normal, expected state that `call_tool` reports as an
+    ordinary `isError` result, not an exception at all). anyio wraps the
+    real httpx error inside a BaseExceptionGroup when it surfaces from a
+    task group, so this walks the tree rather than checking the exception
+    type directly.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in (400, 401)
+    if isinstance(exc, BaseExceptionGroup):
+        return any(_looks_like_invalid_session_error(sub) for sub in exc.exceptions)
+    return False
+
+
 class _Upstream:
     """Talks to mcp.kite.trade with a fresh HTTP connection per call, not one
     connection persisted across calls — a persisted connection turned out to
@@ -274,11 +292,27 @@ class _Upstream:
     "Cross-process session persistence" note) so a completed login survives
     opening a brand new gateway process, not just repeated calls within one
     — `_ensure_session_id` checks that file before ever calling
-    `initialize()`. Two known limitations, not yet handled:
-    - If the persisted id is ever rejected by Kite as genuinely invalid (as
-      opposed to simply "not logged in yet", which is a normal, expected
-      state), this doesn't auto-recover — delete SESSION_ID_FILE to force
-      a fresh session.
+    `initialize()`.
+
+    **Auto-recovery from a rejected persisted id — added and live-verified
+    2026-08-04.** Previously documented here as a known, unhandled
+    limitation: hit live during a compounding-proof test when a persisted
+    session id had gone stale enough that Kite rejected it outright with an
+    HTTP 400 on the very first call that used it — not the normal "not
+    logged in yet" `isError` result, an actual connection failure, which
+    left `list_tools()` throwing and every tool consequently invisible to
+    the model with no clear error surfaced. `list_tools()`/`call_tool()`
+    below now catch exactly that shape of failure
+    (`_looks_like_invalid_session_error`), clear the bad id (memory and
+    disk), and retry once against a brand-new unauthenticated session —
+    the same manual recovery this module used to document ("delete
+    SESSION_ID_FILE to force a fresh session") applied automatically
+    rather than requiring a human to notice and do it by hand. The retry's
+    fresh session is unauthenticated, same as any first-ever connection —
+    `login` is still needed again, that part doesn't change, only "the
+    gateway silently stays broken" does.
+
+    One known limitation, not yet handled:
     - The `_session_id_lock` above only guards concurrent calls *within one
       process*. If two separate gateway processes both start with no
       SESSION_ID_FILE present yet (e.g. two Claude Code sessions opened
@@ -324,14 +358,36 @@ class _Upstream:
             async with ClientSession(read, write) as session:
                 yield session
 
+    def _invalidate_session(self) -> None:
+        """Clears the bad id from memory and disk so the next `_connect()`
+        mints a fresh one via `initialize()` instead of retrying the same
+        rejected id forever."""
+        self._session_id = None
+        SESSION_ID_FILE.unlink(missing_ok=True)
+
+    async def _with_invalid_session_retry(self, operation):
+        """Runs `operation(session)` against a fresh connection; if the
+        persisted session id turns out to be genuinely invalid (an HTTP
+        400/401, not a normal "not logged in" result), clears it and
+        retries exactly once against a brand-new session — see this
+        class's docstring's "Auto-recovery" note. Any other failure (a real
+        network error, an unrelated bug) is never retried, just raised."""
+        try:
+            async with self._connect() as session:
+                return await operation(session)
+        except BaseException as exc:
+            if not _looks_like_invalid_session_error(exc):
+                raise
+            self._invalidate_session()
+            async with self._connect() as session:
+                return await operation(session)
+
     async def list_tools(self) -> list[types.Tool]:
-        async with self._connect() as session:
-            result = await session.list_tools()
-            return result.tools
+        result = await self._with_invalid_session_retry(lambda session: session.list_tools())
+        return result.tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-        async with self._connect() as session:
-            return await session.call_tool(name, arguments)
+        return await self._with_invalid_session_retry(lambda session: session.call_tool(name, arguments))
 
 
 upstream = _Upstream()

@@ -62,8 +62,10 @@ from claude_agent_sdk.types import PreToolUseHookInput
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.skill_tools import build_skill_tools_server
 from engine.tool_capture import save_tool_result
+from engine.workspace_notes import build_workspace_notes_server
 
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
+_WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
 # old repo, but a genuine session-limit *hit* (an error_during_execution
@@ -133,6 +135,10 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     skill_scripts_server = build_skill_tools_server(skill_names)
     if skill_scripts_server is not None:
         mcp_servers[_SKILL_SCRIPTS_SERVER_NAME] = skill_scripts_server
+    # Unconditional, unlike skill_scripts above: every skill in every
+    # workspace uses the same one notes.md convention (docs/vision.md's
+    # workspace tier), so there's no per-skill declaration to gate this on.
+    mcp_servers[_WORKSPACE_NOTES_SERVER_NAME] = build_workspace_notes_server()
 
     server_names = list(mcp_servers.keys())
     kwargs = {

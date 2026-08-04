@@ -253,6 +253,9 @@ exist).
     (date-scoped)"). Only write to `notes.md` if something durable surfaced
     (e.g. the user states a new standing preference in reaction to the
     digest) — that's rare for this skill and should not happen by default.
+    If it does, use the `update_workspace_notes` tool (not `Write`), same
+    as portfolio-health-check's step 5 — it always saves to the workspace's
+    `notes.md`, never a different filename.
 
 12. **Close with a Sources footer** (tool + as-of date for every figure,
     including the computed-file path — for portfolio figures, cite both

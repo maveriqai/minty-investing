@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import anyio
+import httpx
 import mcp.types as types
 import pytest
 
@@ -40,6 +41,17 @@ server = _load("kite_gateway_server", MCP_DIR / "kite_gateway" / "server.py")
 
 def _tool(name: str) -> types.Tool:
     return types.Tool(name=name, inputSchema={"type": "object", "properties": {}})
+
+
+class _FakeToolsResult:
+    def __init__(self, tools):
+        self.tools = tools
+
+
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://mcp.kite.trade/mcp")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(f"{status_code}", request=request, response=response)
 
 
 def test_allowed_and_denied_tools_are_disjoint():
@@ -226,3 +238,141 @@ def test_ensure_session_id_is_race_safe(monkeypatch, tmp_path):
     assert calls["initializes"] == 1
     assert calls["connects"] == 1
     assert upstream._session_id == "fake-session-id"
+
+
+def test_looks_like_invalid_session_error_detects_400_and_401():
+    assert server._looks_like_invalid_session_error(_http_status_error(400))
+    assert server._looks_like_invalid_session_error(_http_status_error(401))
+
+
+def test_looks_like_invalid_session_error_ignores_unrelated_errors():
+    assert not server._looks_like_invalid_session_error(RuntimeError("network blip"))
+    assert not server._looks_like_invalid_session_error(_http_status_error(500))
+
+
+def test_looks_like_invalid_session_error_walks_exception_group():
+    group = BaseExceptionGroup("unhandled errors in a TaskGroup", [_http_status_error(400)])
+    assert server._looks_like_invalid_session_error(group)
+
+
+def test_looks_like_invalid_session_error_ignores_exception_group_of_unrelated_errors():
+    group = BaseExceptionGroup("unhandled errors in a TaskGroup", [RuntimeError("boom")])
+    assert not server._looks_like_invalid_session_error(group)
+
+
+def test_list_tools_auto_recovers_from_rejected_persisted_session(monkeypatch, tmp_path):
+    session_file = tmp_path / "kite_gateway_session_id.json"
+    monkeypatch.setattr(server, "SESSION_ID_FILE", session_file)
+    server._write_persisted_session_id("stale-session-id")
+
+    calls = {"list_tools_calls": 0, "initializes": 0}
+
+    class FakeClientSession:
+        def __init__(self, read, write):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        async def initialize(self):
+            calls["initializes"] += 1
+
+        async def list_tools(self):
+            calls["list_tools_calls"] += 1
+            if calls["list_tools_calls"] == 1:
+                raise _http_status_error(400)  # the stale persisted id, rejected
+            return _FakeToolsResult([_tool("get_holdings")])
+
+    @asynccontextmanager
+    async def fake_streamablehttp_client(url, headers=None, terminate_on_close=True):
+        yield (None, None, lambda: "fresh-session-id")
+
+    monkeypatch.setattr(server, "ClientSession", FakeClientSession)
+    monkeypatch.setattr(server, "streamablehttp_client", fake_streamablehttp_client)
+
+    upstream = server._Upstream()
+    tools = anyio.run(upstream.list_tools)
+
+    assert [t.name for t in tools] == ["get_holdings"]
+    assert calls["list_tools_calls"] == 2  # the failed original call + the successful retry
+    assert calls["initializes"] == 1  # exactly one fresh session minted, not more
+    assert upstream._session_id == "fresh-session-id"
+    assert server._read_persisted_session_id() == "fresh-session-id"
+
+
+def test_call_tool_auto_recovers_from_rejected_persisted_session(monkeypatch, tmp_path):
+    session_file = tmp_path / "kite_gateway_session_id.json"
+    monkeypatch.setattr(server, "SESSION_ID_FILE", session_file)
+    server._write_persisted_session_id("stale-session-id")
+
+    calls = {"call_tool_calls": 0}
+
+    class FakeClientSession:
+        def __init__(self, read, write):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        async def initialize(self):
+            pass
+
+        async def call_tool(self, name, arguments):
+            calls["call_tool_calls"] += 1
+            if calls["call_tool_calls"] == 1:
+                raise _http_status_error(400)
+            return types.CallToolResult(content=[types.TextContent(type="text", text="ok")], isError=False)
+
+    @asynccontextmanager
+    async def fake_streamablehttp_client(url, headers=None, terminate_on_close=True):
+        yield (None, None, lambda: "fresh-session-id")
+
+    monkeypatch.setattr(server, "ClientSession", FakeClientSession)
+    monkeypatch.setattr(server, "streamablehttp_client", fake_streamablehttp_client)
+
+    upstream = server._Upstream()
+    result = anyio.run(upstream.call_tool, "get_holdings", {})
+
+    assert result.isError is False
+    assert calls["call_tool_calls"] == 2
+    assert upstream._session_id == "fresh-session-id"
+
+
+def test_list_tools_does_not_retry_on_unrelated_error(monkeypatch, tmp_path):
+    session_file = tmp_path / "kite_gateway_session_id.json"
+    monkeypatch.setattr(server, "SESSION_ID_FILE", session_file)
+    server._write_persisted_session_id("persisted-session-id")
+
+    class FakeClientSession:
+        def __init__(self, read, write):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+        async def list_tools(self):
+            raise RuntimeError("network blip")
+
+    @asynccontextmanager
+    async def fake_streamablehttp_client(url, headers=None, terminate_on_close=True):
+        yield (None, None, lambda: "irrelevant")
+
+    monkeypatch.setattr(server, "ClientSession", FakeClientSession)
+    monkeypatch.setattr(server, "streamablehttp_client", fake_streamablehttp_client)
+
+    upstream = server._Upstream()
+    with pytest.raises(RuntimeError, match="network blip"):
+        anyio.run(upstream.list_tools)
+
+    # An unrelated failure never triggers the invalidate-and-retry path —
+    # the persisted id (and in-memory state) is left exactly as it was.
+    assert server._read_persisted_session_id() == "persisted-session-id"

@@ -24,18 +24,24 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
-    expected = tools.guardrail.denied_tool_names(list(FAKE_MCP_SERVERS.keys()))
+    # workspace_notes is always added (unlike skill_scripts, which is
+    # conditional) — see cas._build_options — so the guardrail's own denied
+    # server list must include it too.
+    expected = tools.guardrail.denied_tool_names([*FAKE_MCP_SERVERS.keys(), "workspace_notes"])
     assert set(options.disallowed_tools) == expected
-    assert len(expected) == 2 * len(ORDER_TOOL_NAMES)
+    assert len(expected) == 3 * len(ORDER_TOOL_NAMES)
 
 
 def test_build_options_passes_mcp_servers_and_skills_through_unchanged():
     # No skill here declares deterministic_scripts, so no skill_scripts
     # server is added — see the two tests below for that behavior.
+    # workspace_notes is always added regardless — see the dedicated test
+    # for that below.
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
-    assert options.mcp_servers == FAKE_MCP_SERVERS
+    assert set(FAKE_MCP_SERVERS).issubset(options.mcp_servers)
+    assert "skill_scripts" not in options.mcp_servers
     assert options.skills == []
     assert options.setting_sources == ["project"]
 
@@ -58,6 +64,16 @@ def test_build_options_omits_skill_scripts_server_when_no_skill_declares_scripts
     options = cas._build_options(tools)
 
     assert "skill_scripts" not in options.mcp_servers
+
+
+def test_build_options_always_adds_workspace_notes_server():
+    # Unlike skill_scripts, this isn't gated on any skill declaring
+    # anything — every skill in every workspace shares the same one
+    # notes.md convention.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+
+    assert "workspace_notes" in options.mcp_servers
 
 
 def test_build_options_defaults_leave_tools_and_buffer_size_unset():
