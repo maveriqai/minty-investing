@@ -275,3 +275,63 @@ def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, mo
     out = capsys.readouterr().out
     assert "matches red-flag-scan's expected output" in out
     assert "red_flags_RELIANCE_" in out
+
+
+def _write_digest_skill(tmp_path, monkeypatch):
+    import engine.skills as skills_module
+
+    skills_root = tmp_path / ".claude" / "skills"
+    skill_dir = skills_root / "morning-digest"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: morning-digest\ndescription: test\n'
+        'expected_outputs:\n'
+        '  - "workspaces/{workspace}/results/digest_{date}.json"\n'
+        '  - "workspaces/{workspace}/results/digest_{date}.md"\n---\n'
+    )
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
+
+
+def test_run_turn_saves_composed_text_to_a_skills_declared_md_output(tmp_path, monkeypatch, capsys):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "daily"
+    (workspace_root / "results").mkdir(parents=True)
+    _write_digest_skill(tmp_path, monkeypatch)
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+    session = _FakeSession(["ignored"], EngineResult(ok=True, text="ignored", error_kind=None, raw=None))
+
+    async def _send_and_write(prompt, *, workspace_root=None):
+        (workspace_root / "results" / f"digest_{today}.json").write_text("{}")
+        for chunk in ["# Morning Digest\n", "Portfolio is up.\n"]:
+            yield chunk
+
+    session.send = _send_and_write
+    asyncio.run(
+        _run_turn(session, "give me the digest", workspace_root=workspace_root, skill_names=["morning-digest"])
+    )
+
+    md_path = workspace_root / "results" / f"digest_{today}.md"
+    assert md_path.read_text() == "# Morning Digest\nPortfolio is up.\n"
+    out = capsys.readouterr().out
+    assert f"[engine saved morning-digest's composed output — {md_path}]" in out
+    assert "matches morning-digest's expected output" in out
+
+
+def test_run_turn_does_not_save_md_output_when_json_output_did_not_change(tmp_path, monkeypatch, capsys):
+    workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = workspaces_dir / "daily"
+    (workspace_root / "results").mkdir(parents=True)
+    _write_digest_skill(tmp_path, monkeypatch)
+
+    session = _FakeSession(["just chatting"], EngineResult(ok=True, text="just chatting", error_kind=None, raw=None))
+    asyncio.run(
+        _run_turn(session, "hi", workspace_root=workspace_root, skill_names=["morning-digest"])
+    )
+
+    assert list((workspace_root / "results").iterdir()) == []
+    assert "[engine saved" not in capsys.readouterr().out

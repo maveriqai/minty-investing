@@ -86,6 +86,25 @@ def resolve_pattern(pattern: str, *, workspace_name: str | None, date: str) -> s
     return resolved
 
 
+def composed_output_patterns(skill_name: str) -> list[str]:
+    """The subset of `skill_name`'s own `expected_outputs` that the engine
+    itself should write, rather than a deterministic script — currently:
+    anything ending `.md`, a skill's prose deliverable (e.g. morning-
+    digest's `results/digest_{date}.md`), as opposed to a `.json` a script
+    like `digest_math.py` already wrote as a side effect of computing it.
+
+    No second frontmatter field needed to mark this — the `.md`/`.json`
+    split already matches "composed text" vs. "computed data" for every
+    skill ported so far. See engine/interactive.py's
+    `_save_composed_outputs`, which uses this to know which pattern to
+    fill in with a turn's full response text, and `match_changed_files`
+    (this same file) to know *whether* to — only once the skill's own
+    non-`.md` pattern (its deterministic script's real output) actually
+    changed this turn, not on every turn a workspace happens to be open.
+    """
+    return [p for p in load_expected_outputs(skill_name) if p.endswith(".md")]
+
+
 def match_changed_files(
     skill_name: str, changed_files: list[str], *, workspace_name: str | None, date: str
 ) -> list[str]:

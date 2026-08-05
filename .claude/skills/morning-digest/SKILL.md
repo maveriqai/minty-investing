@@ -243,8 +243,12 @@ exist).
      symbols' prices came from the (possibly stale) Kite snapshot rather
      than a live quote.
 
-10. **Save a copy** of the composed brief to `results/digest_<date>.md` —
-    the audit trail for what was actually sent, alongside the computed JSON.
+10. **A copy of the composed brief is saved automatically** — once
+    `results/digest_<date>.json` exists (step 6) and this turn's reply
+    text is complete, the engine writes it verbatim to
+    `results/digest_<date>.md`, including the Sources footer (step 12).
+    No separate save step; nothing to do here beyond composing the brief
+    itself well.
 
 11. **Do not write digest content into the workspace's notes.md.** Prices,
     day moves, and FII/DII flow are exactly the kind of ephemeral,

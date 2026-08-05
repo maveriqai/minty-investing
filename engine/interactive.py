@@ -36,7 +36,9 @@ def _augment_with_workspace(prompt: str, workspace_root: Path) -> str:
     )
 
 
-def _report_changed_files(changed: list[str], skill_names: list[str], workspace_name: str | None) -> None:
+def _report_changed_files(
+    changed: list[str], skill_names: list[str], workspace_name: str | None, *, date: str
+) -> None:
     """Factual, generic report — doesn't know or guess which skill (if any)
     the turn invoked, just checks whatever changed against every loaded
     skill's declared `expected_outputs` (see engine/skills.py). A skill
@@ -46,10 +48,9 @@ def _report_changed_files(changed: list[str], skill_names: list[str], workspace_
         print("[no files changed this turn]")
         return
 
-    today = datetime.now(_IST).date().isoformat()
     matched_files: set[str] = set()
     for name in skill_names:
-        matches = skills.match_changed_files(name, changed, workspace_name=workspace_name, date=today)
+        matches = skills.match_changed_files(name, changed, workspace_name=workspace_name, date=date)
         if matches:
             matched_files.update(matches)
             print(f"[matches {name}'s expected output — {', '.join(matches)}]")
@@ -57,6 +58,52 @@ def _report_changed_files(changed: list[str], skill_names: list[str], workspace_
     unmatched = [f for f in changed if f not in matched_files]
     if unmatched:
         print(f"[other files changed, not matching any known skill's expected output — {', '.join(unmatched)}]")
+
+
+def _save_composed_outputs(
+    full_text: str,
+    changed: list[str],
+    skill_names: list[str],
+    *,
+    workspace_name: str,
+    date: str,
+) -> None:
+    """For any loaded skill whose own (non-`.md`) `expected_outputs`
+    pattern matched a file that changed this turn — proof its
+    deterministic step actually ran, e.g. `digest_math.py` writing
+    `results/digest_<date>.json` — also write that skill's declared `.md`
+    pattern (see `skills.composed_output_patterns`) with the turn's full
+    composed text, including the engine-appended Sources footer.
+
+    Fixes morning-digest step 10 ("save a copy of the composed brief")
+    being a prose-only instruction the model reliably didn't follow (found
+    live 2026-08-04) — same "engine writes it, not model prose" shape as
+    engine/sources_footer.py and engine/workspace_notes.py. No morning-
+    digest-specific code: any skill that declares both a `.json` and a
+    `.md` expected output gets this for free the moment its
+    script-computed half shows up.
+
+    A no-op, not an error, when `full_text` is blank (a turn with no
+    reply text has nothing worth archiving) or no skill's non-`.md`
+    pattern matched (an ordinary chat turn, or a skill with no `.md`
+    deliverable declared at all).
+    """
+    if not full_text.strip():
+        return
+    for name in skill_names:
+        md_patterns = skills.composed_output_patterns(name)
+        if not md_patterns:
+            continue
+        if not skills.match_changed_files(name, changed, workspace_name=workspace_name, date=date):
+            continue
+        for pattern in md_patterns:
+            resolved = skills.resolve_pattern(pattern, workspace_name=workspace_name, date=date)
+            if "{workspace}" in resolved:
+                continue
+            path = skills.REPO_ROOT / resolved
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(full_text)
+            print(f"[engine saved {name}'s composed output — {path}]")
 
 
 async def _run_turn(
@@ -68,14 +115,22 @@ async def _run_turn(
 ) -> None:
     before = snapshot_all(FIXED_WATCH_ROOTS)
     sent = _augment_with_workspace(prompt, workspace_root) if workspace_root is not None else prompt
+    chunks: list[str] = []
     async for chunk in session.send(sent, workspace_root=workspace_root):
         print(chunk, end="", flush=True)
+        chunks.append(chunk)
     print()
     result = session.last_result
     if result is not None and not result.ok:
         print(f"[turn ended without success: {result.error_kind}]", file=sys.stderr)
+    today = datetime.now(_IST).date().isoformat()
     changed = changed_since_all(FIXED_WATCH_ROOTS, before)
-    _report_changed_files(changed, skill_names or [], workspace_root.name if workspace_root else None)
+    if workspace_root is not None:
+        _save_composed_outputs(
+            "".join(chunks), changed, skill_names or [], workspace_name=workspace_root.name, date=today
+        )
+        changed = changed_since_all(FIXED_WATCH_ROOTS, before)
+    _report_changed_files(changed, skill_names or [], workspace_root.name if workspace_root else None, date=today)
 
 
 async def _repl(harness: Harness) -> int:

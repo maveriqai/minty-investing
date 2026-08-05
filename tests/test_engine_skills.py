@@ -7,6 +7,7 @@ from pathlib import Path
 
 import engine.skills as skills_module
 from engine.skills import (
+    composed_output_patterns,
     load_deterministic_scripts,
     load_expected_outputs,
     match_changed_files,
@@ -145,3 +146,30 @@ def test_match_changed_files_empty_when_skill_declares_no_patterns(tmp_path, mon
 
     matches = match_changed_files("quiet-skill", ["anything"], workspace_name=None, date="2026-08-03")
     assert matches == []
+
+
+def test_composed_output_patterns_returns_only_the_md_pattern(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "morning-digest",
+        "name: morning-digest\ndescription: test\n"
+        "expected_outputs:\n"
+        '  - "workspaces/{workspace}/results/digest_{date}.json"\n'
+        '  - "workspaces/{workspace}/results/digest_{date}.md"',
+    )
+
+    assert composed_output_patterns("morning-digest") == [
+        "workspaces/{workspace}/results/digest_{date}.md"
+    ]
+
+
+def test_composed_output_patterns_empty_when_skill_declares_no_md_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "red-flag-scan",
+        'name: red-flag-scan\ndescription: test\nexpected_outputs:\n  - "workspaces/{workspace}/results/red_flags_*_{date}.json"',
+    )
+
+    assert composed_output_patterns("red-flag-scan") == []
