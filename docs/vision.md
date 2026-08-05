@@ -241,9 +241,17 @@ scoped decision:
   produce them.
 - **Grounding.** Every numeric claim traces to a real tool result or a
   computed file, never model memory. Every output ends with a Sources
-  footer (tool/source + as-of date).
-- **SEBI disclaimer.** Attached automatically to any output that could be
-  read as investment advice.
+  footer (tool/source + as-of date) — built and appended by the engine
+  itself (`engine/sources_footer.py`, from what actually got captured to
+  `data/` that turn), not left to the model to remember to write.
+- **SEBI disclaimer.** Attached automatically — same engine step as the
+  Sources footer, not model-authored — to any output that could be read as
+  investment advice. Exact text (identical to `engine/sources_footer.py`'s
+  `DISCLAIMER` constant, kept in sync on purpose):
+
+  > Minty is a research tool, not investment advice. This is educational
+  > analysis of publicly available data. Consult a SEBI-registered
+  > investment adviser before acting.
 - **User data stays local.** Notes, preferences, portfolio holdings,
   workspace content — never committed to the repo, never assumed by code
   that ships.

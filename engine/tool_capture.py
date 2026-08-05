@@ -30,8 +30,11 @@ from zoneinfo import ZoneInfo
 _IST = ZoneInfo("Asia/Kolkata")
 
 
-def _today() -> str:
+def today_ist() -> str:
     return datetime.now(_IST).date().isoformat()
+
+
+_today = today_ist
 
 
 def _symbol(args: dict[str, Any], key: str = "symbol") -> str:
@@ -106,4 +109,4 @@ def save_tool_result(
     return path
 
 
-__all__ = ["capture_path", "parse_mcp_tool_name", "save_tool_result"]
+__all__ = ["capture_path", "parse_mcp_tool_name", "save_tool_result", "today_ist"]

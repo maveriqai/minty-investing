@@ -61,7 +61,8 @@ from claude_agent_sdk.types import PreToolUseHookInput
 
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.skill_tools import build_skill_tools_server
-from engine.tool_capture import save_tool_result
+from engine.sources_footer import build_footer
+from engine.tool_capture import parse_mcp_tool_name, save_tool_result, today_ist
 from engine.workspace_notes import build_workspace_notes_server
 
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
@@ -237,6 +238,7 @@ class ClaudeSession:
     def __init__(self, client: ClaudeSDKClient) -> None:
         self._client = client
         self.last_result: EngineResult | None = None
+        self.last_captures: list[tuple[str, str, Path]] = []
 
     async def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
         """`workspace_root`, when given, turns on auto-capture: every Layer-2
@@ -244,9 +246,20 @@ class ClaudeSession:
         `data/` under the same filename its skill's own SKILL.md already
         documents (see engine/tool_capture.py) — the model no longer has to
         remember to save it there itself.
+
+        Also mechanically appends a Sources footer + the SEBI disclaimer
+        (see engine/sources_footer.py) once the turn's own text is fully
+        streamed, if `workspace_root` is set and this turn captured at
+        least one file — docs/vision.md §5 requires both on every grounded
+        output, and live-testing found the model reliably didn't write
+        either on its own (the same class of dropped-closing-step failure
+        `update_workspace_notes` fixed for notes.md). A turn that captured
+        nothing (plain chat, a workspace-less turn) gets no footer — see
+        `build_footer`'s own docstring.
         """
         await self._client.query(prompt)
         pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
+        captures: list[tuple[str, str, Path]] = []
         async for message in self._client.receive_response():
             kind = type(message).__name__
             if kind == "AssistantMessage":
@@ -266,8 +279,14 @@ class ClaudeSession:
                             continue
                         tool_name, tool_input = call
                         text = _tool_result_text(block.content)
-                        if text is not None:
-                            save_tool_result(tool_name, tool_input, text, workspace_root)
+                        if text is None:
+                            continue
+                        saved_path = save_tool_result(tool_name, tool_input, text, workspace_root)
+                        if saved_path is None:
+                            continue
+                        parsed = parse_mcp_tool_name(tool_name)
+                        if parsed is not None:
+                            captures.append((parsed[0], parsed[1], saved_path))
             elif kind == "ResultMessage":
                 if message.subtype == "success":
                     self.last_result = EngineResult(
@@ -277,6 +296,12 @@ class ClaudeSession:
                     self.last_result = EngineResult(
                         ok=False, text=None, error_kind=message.subtype, raw=message
                     )
+
+        self.last_captures = captures
+        if workspace_root is not None and captures:
+            footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
+            if footer:
+                yield footer
 
 
 class ClaudeAgentSDKHarness:

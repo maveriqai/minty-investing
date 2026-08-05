@@ -28,6 +28,13 @@ import sys
 from pathlib import Path
 
 
+def _unwrap_envelope(payload: object) -> object:
+    """Unwrap a {"source","as_of","data"} envelope if present; already-bare data passes through unchanged."""
+    if isinstance(payload, dict) and "data" in payload:
+        return payload["data"]
+    return payload
+
+
 def _extract_symbols(payload: object) -> set[str]:
     """Walk an NSE surveillance envelope, collecting every 'symbol' value found."""
     found: set[str] = set()
@@ -57,7 +64,7 @@ def compute(holdings: list[dict], asm_payload: object, gsm_payload: object) -> d
 if __name__ == "__main__":
     holdings_path, asm_path, gsm_path = (Path(p) for p in sys.argv[1:4])
     date_tag = sys.argv[4]
-    holdings = json.loads(holdings_path.read_text())
+    holdings = _unwrap_envelope(json.loads(holdings_path.read_text()))
     asm_payload = json.loads(asm_path.read_text())
     gsm_payload = json.loads(gsm_path.read_text())
 
