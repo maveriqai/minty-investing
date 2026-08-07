@@ -143,9 +143,10 @@ def test_wait_for_mcp_servers_ready_gives_up_at_timeout_without_hanging():
 
 
 class _FakeSession:
-    def __init__(self, chunks, result):
+    def __init__(self, chunks, result, last_over_budget=None):
         self._chunks = chunks
         self.last_result = result
+        self.last_over_budget = last_over_budget or []
         self.received_prompts: list[str] = []
 
     async def send(self, prompt: str, *, workspace_root=None):
@@ -175,6 +176,18 @@ def test_run_turn_prints_streamed_chunks_with_trailing_newline(tmp_path, monkeyp
     )
     asyncio.run(_run_turn(session, "hi"))
     assert "Hello world" in capsys.readouterr().out
+
+
+def test_run_turn_prints_over_budget_lines_as_a_diagnostic(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    session = _FakeSession(
+        ["ok"],
+        EngineResult(ok=True, text="ok", error_kind=None, raw=None),
+        last_over_budget=["india_news.get_news called 33 times this turn (skill declares an expected ceiling of 25)"],
+    )
+    asyncio.run(_run_turn(session, "hi"))
+    out = capsys.readouterr().out
+    assert "[budget] india_news.get_news called 33 times this turn" in out
 
 
 def test_run_turn_reports_error_kind_to_stderr_on_failed_turn(tmp_path, monkeypatch, capsys):

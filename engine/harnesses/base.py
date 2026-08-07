@@ -61,6 +61,15 @@ class ToolConfig:
     allowed_bash_prefixes: tuple[str, ...] = ()  # enforced by a PreToolUse hook, not an allow-list
     max_buffer_size: int | None = None  # None = SDK's own default (1MB)
 
+    # A staged skill (docs/staged-skill-execution-design.md) is exposed via
+    # its own run_staged_<skill> tool, never through native Skill-invocation
+    # — see engine/harnesses/claude_agent_sdk.py's _build_options. That tool
+    # opens further sessions of its own; this flag is set False on the
+    # ToolConfig passed to *those* inner sessions (engine/staged_skills.py)
+    # so a stage's own session never sees run_staged_<skill> itself and
+    # can't recursively re-trigger the whole staged run.
+    include_staged_tools: bool = True
+
 
 @dataclass(frozen=True)
 class EngineResult:

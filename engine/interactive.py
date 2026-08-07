@@ -123,6 +123,8 @@ async def _run_turn(
     result = session.last_result
     if result is not None and not result.ok:
         print(f"[turn ended without success: {result.error_kind}]", file=sys.stderr)
+    for line in getattr(session, "last_over_budget", []):
+        print(f"[budget] {line}")
     today = datetime.now(_IST).date().isoformat()
     changed = changed_since_all(FIXED_WATCH_ROOTS, before)
     if workspace_root is not None:

@@ -51,12 +51,75 @@ def test_build_options_adds_skill_scripts_server_when_a_skill_declares_scripts()
     # .claude/skills/morning-digest/SKILL.md) — this reads the real
     # frontmatter, not a fake, since the whole point is proving the wiring
     # from a real skill's declaration into the actual options object.
+    # morning-digest also declares `stages` now, which is a separate
+    # concern (see the staged_workflows tests below) — deterministic
+    # scripts still build into skill_scripts regardless, since each
+    # stage's own session needs run_digest_math etc. too.
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["morning-digest"])
     options = cas._build_options(tools)
 
     assert set(FAKE_MCP_SERVERS).issubset(options.mcp_servers)
     assert "skill_scripts" in options.mcp_servers
-    assert options.skills == ["morning-digest"]
+
+
+def test_build_options_exposes_a_staged_skill_only_through_its_own_tool():
+    # docs/staged-skill-execution-design.md §8's first requirement: a
+    # staged skill must never also be in the native skill list, so the
+    # model never has a choice between two paths to the same skill.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["morning-digest"])
+    options = cas._build_options(tools)
+
+    assert "morning-digest" not in options.skills
+    assert "staged_workflows" in options.mcp_servers
+
+
+def test_build_options_omits_staged_workflows_server_for_a_skill_without_stages():
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["red-flag-scan"])
+    options = cas._build_options(tools)
+
+    assert options.skills == ["red-flag-scan"]
+    assert "staged_workflows" not in options.mcp_servers
+
+
+def test_build_options_suppresses_staged_workflows_server_when_flagged_off():
+    # The flag a stage's own inner session is opened with (see
+    # engine/staged_skills.py) — prevents a stage from seeing
+    # run_staged_morning_digest and recursively re-triggering itself.
+    tools = ToolConfig(
+        mcp_servers=FAKE_MCP_SERVERS,
+        guardrail=GuardrailPolicy(),
+        skills=["morning-digest"],
+        include_staged_tools=False,
+    )
+    options = cas._build_options(tools)
+
+    assert "staged_workflows" not in options.mcp_servers
+    # native skill list still excludes it too -- the body is sent as
+    # shared context in the prompt itself (§4), not via native
+    # Skill-invocation, regardless of this flag.
+    assert "morning-digest" not in options.skills
+
+
+def test_build_options_routes_any_stages_declaring_skill_not_just_morning_digest(tmp_path, monkeypatch):
+    # docs/staged-skill-execution-design.md §10 step 3: proves the staged
+    # routing above isn't secretly keyed off the literal string
+    # "morning-digest" anywhere -- a second, synthetic skill with its own
+    # `stages` block gets identical treatment from a real SKILLS_ROOT read.
+    import engine.skills as skills_module
+
+    skill_dir = tmp_path / "widget-digest"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: widget-digest\ndescription: test\n"
+        "stages:\n  - id: only_stage\n    instructions: do the one thing\n---\n\nBody.\n"
+    )
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["widget-digest"])
+    options = cas._build_options(tools)
+
+    assert "widget-digest" not in options.skills
+    assert "staged_workflows" in options.mcp_servers
 
 
 def test_build_options_omits_skill_scripts_server_when_no_skill_declares_scripts():
@@ -113,12 +176,43 @@ def test_build_options_bypasses_interactive_permission_prompts():
 
 
 def test_build_options_wires_a_pretooluse_hook():
+    # Two hooks: order-tool denial and Bash-scope denial. Tool-call
+    # budgets (engine/tool_budget.py) are audit-only — counted inside
+    # ClaudeSession.send() itself, not a PreToolUse hook — so they add no
+    # third hook here. See tool_budget.py's own docstring for why a hard
+    # deny hook was tried and dropped.
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills="all")
     options = cas._build_options(tools)
 
     assert "PreToolUse" in options.hooks
     assert len(options.hooks["PreToolUse"]) == 1
     assert len(options.hooks["PreToolUse"][0].hooks) == 2
+
+
+def test_open_session_gives_the_session_a_budget_tracker_built_from_real_skills(monkeypatch):
+    # Real morning-digest SKILL.md declares india_news.get_news's budget —
+    # proves open_session() reads it into the session's own tracker (used
+    # for audit only, never to block a call).
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+
+    harness = cas.ClaudeAgentSDKHarness()
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=["morning-digest"])
+
+    async def _open_and_check():
+        async with harness.open_session(tools) as session:
+            assert session._budget_tracker._budgets == {("india_news", "get_news"): 25}
+
+    asyncio.run(_open_and_check())
 
 
 def test_deny_hook_denies_order_tools_and_allows_safe_tools():

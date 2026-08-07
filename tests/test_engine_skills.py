@@ -10,6 +10,7 @@ from engine.skills import (
     composed_output_patterns,
     load_deterministic_scripts,
     load_expected_outputs,
+    load_tool_call_budgets,
     match_changed_files,
     resolve_pattern,
 )
@@ -173,3 +174,26 @@ def test_composed_output_patterns_empty_when_skill_declares_no_md_output(tmp_pat
     )
 
     assert composed_output_patterns("red-flag-scan") == []
+
+
+def test_load_tool_call_budgets_reads_declared_ceilings(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "morning-digest",
+        "name: morning-digest\ndescription: test\ntool_call_budgets:\n  india_news.get_news: 25",
+    )
+
+    assert load_tool_call_budgets("morning-digest") == {"india_news.get_news": 25}
+
+
+def test_load_tool_call_budgets_empty_when_skill_declares_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(tmp_path, "no-budgets", "name: no-budgets\ndescription: test")
+
+    assert load_tool_call_budgets("no-budgets") == {}
+
+
+def test_load_tool_call_budgets_empty_when_skill_does_not_exist(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    assert load_tool_call_budgets("nonexistent") == {}

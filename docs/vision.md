@@ -219,6 +219,33 @@ plain top-level `skills/`), and, unlike the old repo, real multi-turn
 session state — the one thing that makes this a standalone tool rather
 than a single-shot script.
 
+**Staged skills — opt-in, for skills whose single-turn context can grow
+unbounded.** A skill's `SKILL.md` can declare an optional `stages`
+frontmatter field (`docs/staged-skill-execution-design.md`): instead of
+running as one turn, the engine splits it into several fresh sessions, one
+per declared stage, each starting from a small, bounded prompt (the
+skill's own body + that stage's authored instructions) rather than
+inheriting the full accumulated conversation of the stages before it.
+Built to fix a real bug — a 98-holding `morning-digest` run made ~70 tool
+calls in one ~31-minute turn and silently dropped 11 of 29 news results
+from its own Sources footer, a large-enough single turn apparently
+disrupting the engine's tool-call/tool-result pairing. A staged skill is
+exposed to the model as its own dedicated in-process tool
+(`run_staged_<skill>`, on a separate `staged_workflows` server — see
+`engine/staged_skill_tools.py`) rather than through native
+`Skill`-invocation — one entry point, so the model never has to choose
+between two paths to the same skill. `engine/staged_skills.py`'s
+orchestration and the tool builder are both generic, reading only a
+skill's own frontmatter — no per-skill engine code, same "declare
+structure in SKILL.md, generic code acts on it" convention as
+`expected_outputs`/`deterministic_scripts`/`tool_call_budgets`. A skill
+that declares no `stages` keeps running exactly as it does today, as one
+turn; adopting staging is opt-in per skill, not a rewrite. Live-verified
+2026-08-07 against `morning-digest`'s real large-portfolio account: an
+exact match between the Sources footer and the files actually on disk,
+where the original single-turn run had dropped a third of its own
+citations — see the design doc's §10 for the numbers.
+
 **Workspace file layout.** A local directory, never committed:
 root-level `notes.md` / `preferences.md` / `portfolio.md` for durable
 cross-cutting facts, `workspaces/<name>/notes.md` for topic/thesis-scoped
@@ -257,7 +284,18 @@ scoped decision:
   that ships.
 - **Be polite to data sources.** All exchange (NSE/BSE) fetching goes
   through cached, rate-limited fetchers with backoff — never hot-loop a
-  real exchange endpoint from a session.
+  real exchange endpoint from a session. A skill's own documented call
+  ceiling for a specific tool (e.g. morning-digest's "~20
+  `india_news.get_news` calls") is tracked mechanically —
+  `tool_call_budgets` in the skill's own SKILL.md frontmatter,
+  counted per turn by `engine/tool_budget.py`. Audit only, deliberately not
+  enforced: unlike the order-execution/Bash-scope guardrails (absolute
+  prohibitions on irreversible actions), an over-budget call here is a
+  harmless, reversible read — refusing it wouldn't undo whatever prose
+  drift produced it, only add a confusing tool error to a user-facing run.
+  The count is printed as an engine diagnostic when a turn goes over, for
+  noticing prose drift again later or informing a future user-facing
+  warning.
 
 ## 6. What Carries Over vs. Rebuilt Clean
 

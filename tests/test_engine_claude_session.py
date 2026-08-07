@@ -11,6 +11,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from engine.harnesses.claude_agent_sdk import ClaudeSession
+from engine.tool_budget import TurnBudgetTracker
 
 _TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
 
@@ -198,6 +199,42 @@ def test_send_ignores_tool_results_with_no_matching_pending_call(tmp_path):
     _drain(session, "anything", workspace_root=tmp_path)
 
     assert not (tmp_path / "data").exists()
+
+
+def test_send_resets_the_budget_tracker_at_the_start_of_each_turn():
+    tracker = TurnBudgetTracker({("india_news", "get_news"): 1})
+    tracker.record("mcp__india_news__get_news")
+    tracker.record("mcp__india_news__get_news")
+    assert tracker.over_budget() != []  # already over budget from a prior turn
+
+    messages = [ResultMessage(subtype="success", result="done")]
+    session = ClaudeSession(_FakeClient(messages), tracker)
+
+    _drain(session, "next turn")
+
+    assert session.last_over_budget == []  # reset at the start of this turn, nothing called since
+
+
+def test_send_records_budgeted_tool_calls_and_reports_when_over_budget():
+    tracker = TurnBudgetTracker({("india_news", "get_news"): 1})
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__india_news__get_news", input={"query": "RELIANCE"}),
+            ToolUseBlock(id="t2", name="mcp__india_news__get_news", input={"query": "RELIANCE INDUSTRIES"}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"data": []}'),
+            ToolResultBlock(tool_use_id="t2", content='{"data": []}'),
+        ]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages), tracker)
+
+    _drain(session, "check news")
+
+    assert len(session.last_over_budget) == 1
+    assert "india_news.get_news" in session.last_over_budget[0]
+    assert "2 times" in session.last_over_budget[0]
 
 
 def test_send_ignores_non_mcp_tool_calls(tmp_path):

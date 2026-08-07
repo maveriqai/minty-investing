@@ -4,6 +4,11 @@ description: Use when the user asks for today's portfolio/market digest or brief
 expected_outputs:
   - "workspaces/{workspace}/results/digest_{date}.json"
   - "workspaces/{workspace}/results/digest_{date}.md"
+tool_call_budgets:
+  # Audit-only per-turn count (engine/tool_budget.py) — not enforced, just
+  # flagged to the engine's own console if exceeded. Set a bit above step
+  # 8's ~20-symbol bounded set.
+  india_news.get_news: 25
 deterministic_scripts:
   - id: digest_math
     path: scripts/digest_math.py
@@ -22,6 +27,61 @@ deterministic_scripts:
     args:
       - {name: digest_file, kind: positional, required: true, description: "Path to the saved results/digest_<date>.json from the digest_math step"}
       - {name: date_tag, kind: positional, required: true, description: "The digest's date tag, YYYY-MM-DD"}
+# Staged execution (docs/staged-skill-execution-design.md) — splits this
+# skill's run into four fresh sessions instead of one long turn, to keep
+# any single turn's context bounded. Each stage's prompt is this file's
+# own body (below) plus that stage's own `instructions`; `needs`/`produces`
+# reuse the same glob-pattern shape as `expected_outputs` above. The
+# `compose` stage declares no `produces` — its output is written by the
+# engine itself (engine/staged_skills.py's `compose_and_save`), not by a
+# deterministic script inside that stage's own session, so there's nothing
+# on disk to mechanically check right when that stage's session closes.
+stages:
+  - id: portfolio_and_market
+    instructions: |
+      This is Stage 1 (Portfolio & market data) of this run — steps 1-6 in
+      the Steps section above. Confirm the workspace, check market status,
+      verify account identity and fetch holdings, fetch the index snapshot
+      and live quotes for every held symbol, fetch FII/DII flow, then call
+      run_digest_math. Stop once this stage's steps are done — surveillance,
+      news, and composing the brief are separate stages, not part of this
+      one.
+    produces:
+      - "workspaces/{workspace}/results/digest_{date}.json"
+  - id: surveillance
+    instructions: |
+      This is Stage 2 (Surveillance) of this run — step 7 in the Steps
+      section above. Fetch the ASM/GSM surveillance lists and call
+      run_surveillance_check against today's holdings. This stage doesn't
+      need the portfolio/market stage's output. Stop once this stage's
+      step is done.
+    produces:
+      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
+  - id: news_and_materiality
+    instructions: |
+      This is Stage 3 (News & materiality) of this run — steps 8-8b in the
+      Steps section above. Read results/digest_{date}.json (see the file
+      list below) for today's bounded symbol set, then for each symbol in
+      that set call get_announcements once and get_news once (symbol only,
+      never also by company name), then call run_materiality_check. Stop
+      once this stage's steps are done.
+    needs:
+      - "workspaces/{workspace}/results/digest_{date}.json"
+    produces:
+      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
+  - id: compose
+    instructions: |
+      This is Stage 4 (Compose & save) of this run — steps 9 and 12 in the
+      Steps section above (step 10's save and step 12's Sources footer
+      happen automatically after this stage — write the brief itself, nothing
+      else). Read the result files listed below and compose the morning
+      digest brief per step 9's structure. Any file listed below as missing
+      means that stage failed — say so explicitly in the relevant section
+      instead of omitting it or guessing at its contents.
+    needs:
+      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
+      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
 ---
 
 # Morning Digest
@@ -168,13 +228,11 @@ exist).
 
 8b. **News fetch, same bounded set.** For each symbol in step 8's bounded
     set, call `india_news.get_news(symbol, limit=5)` using the raw NSE
-    tradingsymbol as the query. Known limitation, not hidden: `india_news`'s
-    own docstring recommends a company name for best results; the raw
-    symbol is the pragmatic choice here (avoids a second lookup step) and
-    may be noisier for less-recognizable tickers. The engine automatically
-    saves each result to `data/news_<symbol>_<date>.json` as each call
-    returns. Cost, stated
-    explicitly: up to ~20 `get_announcements` calls and up to ~20
+    tradingsymbol as the query — **once per symbol, not also by company
+    name** (verified live: the two return identical results here; the
+    second call is pure overhead). The engine automatically saves each
+    result to `data/news_<symbol>_<date>.json` as each call returns. Cost,
+    stated explicitly: up to ~20 `get_announcements` calls and up to ~20
     `india_news.get_news` calls, each throttled by their respective shared
     fetchers (≥2s between requests) → roughly a minute or more of added
     wall-clock time. Acceptable for an on-demand morning check with no tight
@@ -290,9 +348,10 @@ exist).
 - Bound NSE calls to the surveillance lists (2 calls) plus announcement
   checks on the `top_concentration ∪ day_gainers_by_pct ∪
   day_losers_by_pct` set (≤~20 calls) plus the same-bounded `india_news`
-  calls (≤~20 calls) — never loop either over the full holdings list, and
-  always pass `from_date`/`to_date` to `get_announcements` (unbounded calls
-  return years of history).
+  calls, one per symbol (≤~20 calls, audited by the engine — see step 8b) —
+  never loop either over the full holdings list, and always pass
+  `from_date`/`to_date` to `get_announcements` (unbounded calls return
+  years of history).
 - Digest output is ephemeral by design — it belongs in the workspace's
   `results/`, not `notes.md`.
 - If `get_market_status` reports the market closed, don't describe a

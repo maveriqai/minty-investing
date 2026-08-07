@@ -59,9 +59,15 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 from claude_agent_sdk.types import PreToolUseHookInput
 
+from engine import skills
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.skill_tools import build_skill_tools_server
 from engine.sources_footer import build_footer
+from engine.staged_skill_tools import (
+    STAGED_WORKFLOWS_SERVER_NAME,
+    build_staged_workflow_tools_server,
+)
+from engine.tool_budget import TurnBudgetTracker, build_budget_tracker
 from engine.tool_capture import parse_mcp_tool_name, save_tool_result, today_ist
 from engine.workspace_notes import build_workspace_notes_server
 
@@ -132,6 +138,16 @@ def _build_bash_scope_hook(allowed_prefixes: tuple[str, ...]):
 
 def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     skill_names = tools.skills if isinstance(tools.skills, list) else []
+    # A skill declaring `stages` is exposed only through its own
+    # run_staged_<skill> tool (below), never through native
+    # Skill-invocation too — see docs/staged-skill-execution-design.md §8's
+    # first requirement. `staged_skill_names` is computed from the full
+    # list so a stage's own SKILL.md-declared deterministic scripts still
+    # get built into skill_scripts (unaffected) even though the skill
+    # itself is filtered out of `native_skill_names` below.
+    staged_skill_names = [name for name in skill_names if skills.load_stages(name)]
+    native_skill_names = [name for name in skill_names if name not in staged_skill_names]
+
     mcp_servers = dict(tools.mcp_servers)
     skill_scripts_server = build_skill_tools_server(skill_names)
     if skill_scripts_server is not None:
@@ -140,6 +156,10 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     # workspace uses the same one notes.md convention (docs/vision.md's
     # workspace tier), so there's no per-skill declaration to gate this on.
     mcp_servers[_WORKSPACE_NOTES_SERVER_NAME] = build_workspace_notes_server()
+    if tools.include_staged_tools and staged_skill_names:
+        staged_workflows_server = build_staged_workflow_tools_server(staged_skill_names, tools)
+        if staged_workflows_server is not None:
+            mcp_servers[STAGED_WORKFLOWS_SERVER_NAME] = staged_workflows_server
 
     server_names = list(mcp_servers.keys())
     kwargs = {
@@ -164,7 +184,7 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
             ]
         },
         "setting_sources": ["project"],
-        "skills": tools.skills,
+        "skills": native_skill_names if isinstance(tools.skills, list) else tools.skills,
         "permission_mode": "bypassPermissions",
     }
     if tools.builtin_tools is not None:
@@ -235,10 +255,12 @@ class ClaudeSession:
     state across calls to `send()` for as long as the session stays open.
     """
 
-    def __init__(self, client: ClaudeSDKClient) -> None:
+    def __init__(self, client: ClaudeSDKClient, budget_tracker: TurnBudgetTracker | None = None) -> None:
         self._client = client
+        self._budget_tracker = budget_tracker if budget_tracker is not None else TurnBudgetTracker({})
         self.last_result: EngineResult | None = None
         self.last_captures: list[tuple[str, str, Path]] = []
+        self.last_over_budget: list[str] = []
 
     async def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
         """`workspace_root`, when given, turns on auto-capture: every Layer-2
@@ -256,7 +278,16 @@ class ClaudeSession:
         `update_workspace_notes` fixed for notes.md). A turn that captured
         nothing (plain chat, a workspace-less turn) gets no footer — see
         `build_footer`'s own docstring.
+
+        Resets this session's per-turn tool-call counter (see
+        engine/tool_budget.py) before sending — a skill's declared call
+        expectation (e.g. morning-digest's india_news.get_news count)
+        applies per turn, not cumulatively across a whole session. Never
+        blocks a call; `last_over_budget` after the turn just lists which
+        budgeted tools, if any, ran over — an audit signal, not
+        enforcement (see engine/tool_budget.py's docstring for why).
         """
+        self._budget_tracker.reset()
         await self._client.query(prompt)
         pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
         captures: list[tuple[str, str, Path]] = []
@@ -269,6 +300,7 @@ class ClaudeSession:
                         yield block.text
                     elif block_kind == "ToolUseBlock":
                         pending_tool_calls[block.id] = (block.name, block.input)
+                        self._budget_tracker.record(block.name)
             elif kind == "UserMessage":
                 if workspace_root is not None:
                     for block in getattr(message, "content", None) or []:
@@ -298,6 +330,7 @@ class ClaudeSession:
                     )
 
         self.last_captures = captures
+        self.last_over_budget = self._budget_tracker.over_budget()
         if workspace_root is not None and captures:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
@@ -324,6 +357,8 @@ class ClaudeAgentSDKHarness:
             async with self.open_session(tools) as session:
                 async for _ in session.send(prompt):
                     pass
+                for line in session.last_over_budget:
+                    print(f"[budget] {line}")
                 return session.last_result or EngineResult(
                     ok=False, text=None, error_kind="no_result", raw=None
                 )
@@ -337,7 +372,8 @@ class ClaudeAgentSDKHarness:
         client = ClaudeSDKClient(options=options)
         await client.connect()
         await _wait_for_mcp_servers_ready(client, set(options.mcp_servers.keys()))
-        session = ClaudeSession(client)
+        skill_names = tools.skills if isinstance(tools.skills, list) else []
+        session = ClaudeSession(client, build_budget_tracker(skill_names))
         try:
             yield session
         finally:

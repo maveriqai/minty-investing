@@ -74,6 +74,104 @@ def load_deterministic_scripts(skill_name: str) -> list[dict]:
     return list(frontmatter.get("deterministic_scripts") or [])
 
 
+def load_description(skill_name: str) -> str:
+    """The skill's own one-paragraph `description` frontmatter field — the
+    exact text already authored for native Skill-matching. Reused verbatim
+    as the base of a staged skill's dedicated tool description
+    (engine/staged_skill_tools.py) so routing quality doesn't regress
+    between the two mechanisms. Empty string if the skill doesn't exist or
+    declares no description."""
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return ""
+    frontmatter = _parse_frontmatter(skill_md.read_text())
+    return str(frontmatter.get("description") or "")
+
+
+def load_skill_body(skill_name: str) -> str:
+    """The Markdown body after the frontmatter block — the skill's own
+    description, numbered steps, and guardrails. For a staged skill (see
+    `load_stages`), this is sent as shared context to *every* stage
+    (docs/staged-skill-execution-design.md §4, "the body is not replaced")
+    rather than being replaced by the frontmatter. Empty string if the
+    skill doesn't exist."""
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return ""
+    text = skill_md.read_text()
+    if not text.startswith("---"):
+        return text
+    _, _, rest = text.partition("---")
+    _, sep, body = rest.partition("---")
+    return body.strip() if sep else text
+
+
+def _validate_stage_order(skill_name: str, stages: list[dict]) -> None:
+    """Raises ValueError if a stage's `needs` names a file that only a
+    stage at the same or later position `produces` — an authoring mistake
+    caught at load time, not discovered later as a confusing missing-file
+    gap (docs/staged-skill-execution-design.md §5, "Order validation")."""
+    all_produces: set[str] = set()
+    for stage in stages:
+        all_produces.update(stage.get("produces") or [])
+    produced_so_far: set[str] = set()
+    for stage in stages:
+        for need in stage.get("needs") or []:
+            if need in all_produces and need not in produced_so_far:
+                raise ValueError(
+                    f"{skill_name}: stage {stage.get('id')!r} needs {need!r}, "
+                    f"which is only produced by a same-or-later stage — "
+                    f"check {skill_name}'s SKILL.md `stages` ordering"
+                )
+        produced_so_far.update(stage.get("produces") or [])
+
+
+def load_stages(skill_name: str) -> list[dict]:
+    """Each skill's own declared `stages` (docs/staged-skill-execution-
+    design.md) — splitting what would otherwise be one long turn into
+    several fresh, bounded-context sessions. Empty list (not an error) if
+    the skill doesn't exist or doesn't declare `stages` — that skill just
+    keeps running as one turn, unchanged; staging is opt-in.
+
+    Shape per entry: {"id": str, "instructions": str, "needs": [str, ...],
+    "produces": [str, ...]}. `needs`/`produces` reuse `expected_outputs`'s
+    own glob-pattern-with-placeholders shape (see `resolve_pattern`); both
+    are optional per stage.
+
+    Validates load-time stage ordering every call (see
+    `_validate_stage_order`) — cheap (one small YAML re-parse), and keeps
+    the check honest if a skill's SKILL.md changes without an engine
+    restart, matching every other `load_*` function in this module.
+    """
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return []
+    frontmatter = _parse_frontmatter(skill_md.read_text())
+    stages = list(frontmatter.get("stages") or [])
+    if stages:
+        _validate_stage_order(skill_name, stages)
+    return stages
+
+
+def load_tool_call_budgets(skill_name: str) -> dict[str, int]:
+    """Each skill's own declared per-turn call ceiling for a specific MCP
+    tool — e.g. morning-digest's documented "~20 india_news.get_news calls"
+    (its Guardrails section), now a fact the engine enforces (see
+    engine/tool_budget.py) rather than a number the model has to remember
+    and self-police.
+
+    Empty dict if the skill doesn't exist or declares nothing. Keys are
+    "<mcp_server>.<tool_name>" (matching how a skill's own prose already
+    names a tool, e.g. "india_news.get_news"), values are the max calls to
+    that tool permitted in one turn.
+    """
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return {}
+    frontmatter = _parse_frontmatter(skill_md.read_text())
+    return dict(frontmatter.get("tool_call_budgets") or {})
+
+
 def resolve_pattern(pattern: str, *, workspace_name: str | None, date: str) -> str:
     """Substitutes `{date}` always, `{workspace}` only if a workspace name
     is given. A pattern still containing a literal `{workspace}` after this
