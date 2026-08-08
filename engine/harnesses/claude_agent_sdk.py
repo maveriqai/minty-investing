@@ -340,7 +340,9 @@ class ClaudeSession:
 class ClaudeAgentSDKHarness:
     """`Harness` implementation backed by `claude_agent_sdk`."""
 
-    async def run(self, prompt: str, tools: ToolConfig) -> EngineResult:
+    async def run(
+        self, prompt: str, tools: ToolConfig, *, workspace_root: Path | None = None
+    ) -> EngineResult:
         """Single-shot: open a session, send one turn, close.
 
         Originally built on the module-level `query()` function directly
@@ -352,16 +354,36 @@ class ClaudeAgentSDKHarness:
         so `run()` is now a thin wrapper over the same session machinery
         instead of a second, separately-buggy code path to `claude_agent_sdk`.
         One proven path for both single-shot and multi-turn use, not two.
+
+        `workspace_root` is threaded straight to the underlying
+        `session.send()` — without it, this entire single-shot path had no
+        auto-capture, no Sources footer, and no SEBI disclaimer, silently
+        (found live 2026-08-08: a non-staged skill run through
+        `engine/run.py` fell back to the model saving files itself, under
+        made-up names, with no footer or disclaimer at all).
+
+        Chunks are accumulated here rather than discarded, and used to
+        build the returned text when the turn succeeds — `session.
+        last_result.text` alone is the SDK's own raw final message and
+        does *not* include the footer, since `send()` appends it as one
+        more streamed chunk after that result is already set (see
+        `ClaudeSession.send`'s own docstring). Accumulating chunks is what
+        `engine/interactive.py`'s `_run_turn` already does for the same
+        reason.
         """
         try:
             async with self.open_session(tools) as session:
-                async for _ in session.send(prompt):
-                    pass
+                chunks: list[str] = []
+                async for chunk in session.send(prompt, workspace_root=workspace_root):
+                    chunks.append(chunk)
                 for line in session.last_over_budget:
                     print(f"[budget] {line}")
-                return session.last_result or EngineResult(
-                    ok=False, text=None, error_kind="no_result", raw=None
-                )
+                result = session.last_result
+                if result is None:
+                    return EngineResult(ok=False, text=None, error_kind="no_result", raw=None)
+                if not result.ok:
+                    return result
+                return EngineResult(ok=True, text="".join(chunks), error_kind=None, raw=result.raw)
         except Exception as exc:  # noqa: BLE001 - normalized into EngineResult, not swallowed
             error_kind = "session_limit" if _is_session_limit_error(exc) else "other"
             return EngineResult(ok=False, text=None, error_kind=error_kind, raw=exc)

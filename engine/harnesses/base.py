@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from engine.guardrail import GuardrailPolicy
@@ -95,16 +96,29 @@ class Session(Protocol):
 
     last_result: EngineResult | None
 
-    def send(self, prompt: str) -> AsyncIterator[str]:
-        """Send one turn, yielding assistant text as it streams in."""
+    def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
+        """Send one turn, yielding assistant text as it streams in.
+        `workspace_root`, when given, turns on auto-capture and the
+        mechanically-appended Sources footer — see
+        `ClaudeSession.send`'s own docstring, the concrete implementation
+        this protocol describes."""
         ...
 
 
 class Harness(Protocol):
-    async def run(self, prompt: str, tools: ToolConfig) -> EngineResult:
+    async def run(
+        self, prompt: str, tools: ToolConfig, *, workspace_root: Path | None = None
+    ) -> EngineResult:
         """Single-shot: one prompt in, one result out, no session held
         open. Still useful for scripted/on-demand invocations (e.g. the
-        digest) that don't need multi-turn state."""
+        digest) that don't need multi-turn state. `workspace_root`, when
+        given, is threaded straight to the underlying session's `send()` —
+        without it, a single-shot run gets no auto-capture, no Sources
+        footer, and no SEBI disclaimer, silently (found live 2026-08-08:
+        `engine/run.py` never passed one, so a non-staged skill invoked
+        that way fell back to the model saving files itself, under its
+        own made-up names, with no footer or disclaimer at all — the same
+        prose-reliance failure class this engine exists to close)."""
         ...
 
     def open_session(self, tools: ToolConfig) -> AbstractAsyncContextManager[Session]:

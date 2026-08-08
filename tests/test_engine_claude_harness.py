@@ -215,6 +215,85 @@ def test_open_session_gives_the_session_a_budget_tracker_built_from_real_skills(
     asyncio.run(_open_and_check())
 
 
+def test_run_threads_workspace_root_and_folds_the_footer_into_the_returned_text(tmp_path, monkeypatch):
+    # Live-found 2026-08-08: engine/run.py's single-shot path had no way to
+    # turn on auto-capture/the Sources footer at all, and even once
+    # workspace_root is threaded through, run() used to return
+    # session.last_result.text -- the SDK's own raw final message, which
+    # never includes the footer (see ClaudeSession.send: the footer is one
+    # more streamed chunk, yielded after last_result is already set). This
+    # proves both halves of the fix: the flag reaches send(), and the
+    # accumulated chunks (with footer) are what actually comes back.
+    @dataclass
+    class TextBlock:
+        text: str
+
+    @dataclass
+    class ToolUseBlock:
+        id: str
+        name: str
+        input: dict
+
+    @dataclass
+    class ToolResultBlock:
+        tool_use_id: str
+        content: object = None
+        is_error: bool | None = None
+
+    @dataclass
+    class AssistantMessage:
+        content: list
+
+    @dataclass
+    class UserMessage:
+        content: list
+
+    @dataclass
+    class ResultMessage:
+        subtype: str
+        result: str | None = None
+
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]}),
+        ]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content='{"data": {}}')]),
+        AssistantMessage(content=[TextBlock(text="RELIANCE is trading flat today.")]),
+        ResultMessage(subtype="success", result="RELIANCE is trading flat today."),
+    ]
+
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            for message in messages:
+                yield message
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+    workspace_root = tmp_path / "ws"
+    (workspace_root / "data").mkdir(parents=True)
+
+    harness = cas.ClaudeAgentSDKHarness()
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+
+    result = asyncio.run(harness.run("what's the RELIANCE quote?", tools, workspace_root=workspace_root))
+
+    assert result.ok is True
+    assert "RELIANCE is trading flat today." in result.text
+    assert "Sources" in result.text  # the footer, only reachable via accumulated chunks, not last_result alone
+    assert "india_price" in result.text
+
+
 def test_deny_hook_denies_order_tools_and_allows_safe_tools():
     policy = GuardrailPolicy()
     hook = cas._build_deny_hook(policy)
@@ -314,9 +393,10 @@ class _FakeHarness:
 
     to_return: EngineResult
 
-    async def run(self, prompt: str, tools: ToolConfig) -> EngineResult:
+    async def run(self, prompt: str, tools: ToolConfig, *, workspace_root=None) -> EngineResult:
         self.last_prompt = prompt
         self.last_tools = tools
+        self.last_workspace_root = workspace_root
         return self.to_return
 
 
@@ -331,3 +411,33 @@ def test_main_returns_one_on_harness_failure():
     fake = _FakeHarness(to_return=EngineResult(ok=False, text=None, error_kind="other", raw=None))
     exit_code = asyncio.run(run._main("anything", harness=fake))
     assert exit_code == 1
+
+
+def test_main_resolves_and_threads_a_named_workspace(tmp_path, monkeypatch):
+    # docs/vision.md §5's grounding rule only actually applies when
+    # workspace_root reaches Harness.run() -- this proves --workspace
+    # resolves a real directory (creating it if needed, same as
+    # engine/interactive.py's /workspace command) and both augments the
+    # prompt (so the model isn't left guessing the path from prose) and
+    # passes workspace_root through, rather than silently staying None.
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACES_ROOT", tmp_path)
+    fake = _FakeHarness(to_return=EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    exit_code = asyncio.run(run._main("how's my portfolio?", harness=fake, workspace_name="daily"))
+
+    assert exit_code == 0
+    assert fake.last_workspace_root == tmp_path / "daily"
+    assert str(tmp_path / "daily") in fake.last_prompt
+    assert "how's my portfolio?" in fake.last_prompt
+    assert (tmp_path / "daily" / "data").is_dir()
+
+
+def test_main_leaves_workspace_root_none_and_prompt_unaugmented_without_a_name():
+    fake = _FakeHarness(to_return=EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    asyncio.run(run._main("what's the RELIANCE quote?", harness=fake))
+
+    assert fake.last_workspace_root is None
+    assert fake.last_prompt == "what's the RELIANCE quote?"
