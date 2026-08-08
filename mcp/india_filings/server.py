@@ -70,10 +70,15 @@ def get_announcements(symbol: str, from_date: str | None = None, to_date: str | 
     """Corporate announcements (disclosures, results, corporate actions) for one NSE-listed company.
 
     symbol: NSE trading symbol, e.g. "RELIANCE". from_date/to_date:
-    "DD-MM-YYYY" (NSE's native format, not ISO) — omit for NSE's default
-    recent window. Each item includes an_dt (announcement time), desc,
-    attchmntFile (PDF URL) — read the PDF only if the user needs the filing
-    detail, not for routine digest scanning.
+    "DD-MM-YYYY" (NSE's native format, not ISO) — pass both for any bounded
+    check. Omitting them does NOT give a recent window: NSE's default
+    returns a large, arbitrarily-old fixed slice of history (verified
+    live: 714 records spanning 2020-2022, ~500KB, for a stock with no
+    unusual filing volume) — always set them explicitly unless you
+    specifically want the full unbounded history. Each item includes
+    an_dt (announcement time), desc, attchmntFile (PDF URL) — read the PDF
+    only if the user needs the filing detail, not for routine digest
+    scanning.
     """
     params: dict[str, Any] = {"index": "equities", "symbol": symbol.strip().upper()}
     if from_date:

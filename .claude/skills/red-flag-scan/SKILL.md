@@ -44,9 +44,11 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
      to call every time, the saved file just gets refreshed.
    - `india_filings.get_surveillance_list("GSM")` →
      `data/surveillance_gsm_<date>.json`
-   - `india_filings.get_announcements(symbol, from_date=<6 months back>)` →
-     `data/announcements_<SYMBOL>_<date>.json` — bounded window, not the
-     full filing history.
+   - `india_filings.get_announcements(symbol, from_date, to_date)` **with
+     `from_date`/`to_date` explicitly set** to 6-months-back/today
+     (`DD-MM-YYYY`, NSE's native format) →
+     `data/announcements_<SYMBOL>_<date>.json`. Omitting the dates pulls
+     years of history (400KB+), not a bounded window.
    - `india_news.get_news(symbol, limit=10)` → `data/news_<SYMBOL>_<date>.json`
      — once, using the raw NSE tradingsymbol as the query, not also by
      company name (the two return identical results; a second call just

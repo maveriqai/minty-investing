@@ -43,13 +43,15 @@ def _envelope(data: Any, source: str) -> dict[str, Any]:
 def get_news(query: str, limit: int = 10) -> dict[str, Any]:
     """Recent news headlines matching a free-text query, via Google News RSS.
 
-    query: a company name (e.g. "Cupid Limited") for stock-specific news, or
-    a theme/sector phrase (e.g. "Indian auto ancillary sector") for broader
-    context — both work through the same search. limit: max items (default
-    10). Returns headlines/links/publish-time/publisher only, no article
-    body text — don't narrate beyond what the headline says, and always
-    cite the link. Use for red-flag scanning (negative-news keyword checks)
-    or sector context, not as a substitute for india_filings' structured
+    query: for stock-specific news, the raw NSE trading symbol (e.g.
+    "CUPID", not "Cupid Limited") — company name returns the same results,
+    so only pass it if the symbol search comes back empty. For broader
+    context, a theme/sector phrase (e.g. "Indian auto ancillary sector")
+    works through the same search. limit: max items (default 10). Returns
+    headlines/links/publish-time/publisher only, no article body text —
+    don't narrate beyond what the headline says, and always cite the link.
+    Use for red-flag scanning (negative-news keyword checks) or sector
+    context, not as a substitute for india_filings' structured
     announcements.
     """
     try:
