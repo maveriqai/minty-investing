@@ -48,9 +48,9 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
      `data/announcements_<SYMBOL>_<date>.json` — bounded window, not the
      full filing history.
    - `india_news.get_news(symbol, limit=10)` → `data/news_<SYMBOL>_<date>.json`
-     — the raw NSE tradingsymbol as the query (not a company name — the
-     auto-captured filename is keyed off the exact argument passed, and this
-     matches morning-digest's own step 8b convention).
+     — once, using the raw NSE tradingsymbol as the query, not also by
+     company name (the two return identical results; a second call just
+     wastes a fetch and risks a second, uncited file).
    - `india_price.get_fundamentals(symbol)` →
      `data/fundamentals_<SYMBOL>_<date>.json`
 
