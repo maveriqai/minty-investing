@@ -485,7 +485,7 @@ wheels = [
 [[package]]
 name = "minty-investing"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "httpx" },

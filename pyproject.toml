@@ -13,11 +13,24 @@ dependencies = [
     "pyyaml>=6.0,<7",
 ]
 
+[project.scripts]
+minty = "engine.interactive:main"
+
 [dependency-groups]
 dev = [
     "ruff>=0.8",
     "pytest>=8",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Only `engine/` is an importable package (see the pytest comment below) —
+# `mcp/`, `ingest/`, `skills/`, etc. are invoked as scripts or read as data
+# via repo-relative paths, never imported, so they don't belong in the wheel.
+[tool.hatch.build.targets.wheel]
+packages = ["engine"]
 
 [tool.ruff]
 line-length = 100
