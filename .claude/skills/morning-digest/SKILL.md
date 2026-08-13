@@ -103,6 +103,20 @@ exist).
 
 ## Steps
 
+0. **Before triggering the staged run, confirm Kite is reachable.** Call
+   `kite_gateway.get_profile` once, in this top-level turn. If there's no
+   active session, present the `login` tool's returned URL, ask whether to
+   refresh, and **stop this turn there** — don't call
+   `run_staged_morning-digest` yet. A stage can't pause mid-run to ask you
+   anything (`run_staged_morning-digest` is one atomic call with no
+   back-and-forth once started, see docs/staged-skill-execution-design.md
+   §8), so this has to be a genuinely separate turn, not a question you ask
+   and then answer yourself by continuing anyway. Once the user replies —
+   confirming login, or saying to proceed anyway — call
+   `run_staged_morning-digest`: if they declined, step 3 below falls back
+   to the workspace's existing cached holdings rather than skipping the
+   digest.
+
 ## Stage 1: Portfolio & market data
 
 1. **Confirm a workspace.** This skill writes into the current workspace's
@@ -142,6 +156,20 @@ exist).
    (no sector/industry field — sector coverage is a separate, partial
    effort, see `mcp/common/instruments.py`). Read it with the `Read` tool
    if you need to inspect it, rather than ad-hoc Bash.
+
+   **No active Kite session** (`get_profile`/`get_holdings` fails that
+   way, not a real error): don't stop the stage over it — this session has
+   no memory of whether step 0 already asked about it, so just fall back.
+   Glob the workspace's `data/` for the newest existing `holdings_*.json`
+   and use that instead of a fresh fetch; skip the identity check (nothing
+   new to compare). Pass that file straight to step 6's `run_digest_math`
+   as `holdings_file` — its `quotes_file` argument still gets today's live
+   prices from step 4b, so the output keeps today's date and today's
+   pricing even though the position sizes are however old that snapshot
+   is (`digest_math.py` derives the output date from `quotes_file`, not
+   `holdings_file`, for exactly this reason). No cached snapshot exists at
+   all (fresh workspace, never a successful fetch)? Then there's genuinely
+   nothing to fall back to — say so plainly rather than guessing.
 
 4. **Fetch an index snapshot.** Call
    `india_price.get_quote(["^NSEI", "^BSESN", "^NSEBANK", "^INDIAVIX"])`
@@ -257,7 +285,10 @@ exist).
    preference in root `notes.md`. Structure:
    - Index snapshot (NIFTY/SENSEX/BANKNIFTY/VIX, day change).
    - Portfolio today: total day P&L (₹ and %), then top 2-3 ₹ contributors
-     and detractors — not a full position-by-position readout.
+     and detractors — not a full position-by-position readout. If step 3
+     fell back to a cached holdings snapshot, `results/digest_<date>.json`'s
+     `input_file` won't match today's date — say plainly that position
+     sizes are as of that older date (prices/index/news are still today's).
    - Overall portfolio P&L (₹ and %) — one line, not the focus.
    - FII/DII net flow for the latest session.
    - Surveillance flags on held names, if any (step 7) — omit the section
