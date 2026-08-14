@@ -15,6 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from engine import skills
+from engine.claude_login import ensure_logged_in
 from engine.config import build_tool_config
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
@@ -169,6 +170,13 @@ async def _repl(harness: Harness) -> int:
 
 
 def main() -> None:
+    # Checked here, before any prompt is shown, so a stale/missing login
+    # never lands the user in a bare `claude` chat instead of Minty's own
+    # engine — see engine/claude_login.py's docstring for the live-found
+    # bug this closes.
+    if not ensure_logged_in():
+        print("Couldn't sign in to Claude — run 'claude auth login' and try again.", file=sys.stderr)
+        sys.exit(1)
     sys.exit(asyncio.run(_repl(ClaudeAgentSDKHarness())))
 
 
