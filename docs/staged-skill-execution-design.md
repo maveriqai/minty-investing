@@ -725,3 +725,16 @@ across *every* possible run, not just this one; resumability — were
 already flagged as not blocking rollout and remain genuinely open,
 revisit if either turns out to matter in practice. Nothing in this doc's
 rollout plan is currently pending.
+
+**Live observation, 2026-08-17 (outside this doc's rollout plan — ad hoc
+FTE QA, not a targeted repro):** during first-time-experience testing from
+a fresh clone, the `portfolio_and_market` stage failed once
+(`expected output missing`) — fail-open per §9's decision worked exactly
+as designed, the outer model noticed the gap and manually redid the
+missing fetches, producing a correct final digest anyway. A second full
+run shortly after, same account, fresh clone, completed clean — all four
+stages `ok` (`portfolio_and_market` 215.9s, `surveillance` 109.5s,
+`news_and_materiality` 247.0s, `compose` 66.6s; 639.0s / $2.5891 / 26,958
+tok total). Two data points only — not enough to characterize as
+recurring vs. one-off — but the run immediately following the failure was
+clean, and fail-open handled the failure correctly when it did occur.
