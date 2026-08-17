@@ -7,8 +7,9 @@ use it. See [`docs/vision.md`](docs/vision.md) for the full scope and
 [`docs/skills.md`](docs/skills.md) for what each skill does.
 
 **Status:** this file describes the intended install/first-run experience
-for review. Everything below is built and live-verified except the one
-item marked 🚧 — see "Known gaps" at the end.
+for review. Everything below is built and live-verified, including a full
+fresh-clone-to-first-digest run — see "Known gaps" at the end for the
+remaining rough edges (none block a normal first run).
 
 ## Prerequisites
 
@@ -113,11 +114,15 @@ Three steps, in order, from a fresh install to your first real result.
    ```bash
    minty
    ```
-   You should see `Minty — connected.` 🚧 If instead you see `Failed to
-   authenticate: OAuth session expired and could not be refreshed`,
-   that's Prerequisites step 1's Claude login, not Minty — Minty doesn't
-   catch this gracefully yet (see Known gaps). Run `claude` on its own to
-   re-authenticate, then rerun `minty`.
+   Minty checks your Claude login itself before printing anything else.
+   Already logged in (the common case)? You'll see `Minty — connected.`
+   immediately. Not logged in? Minty runs `claude auth login` for you and
+   waits — you still complete the real sign-in in your own browser, this
+   just saves you the extra step of running it yourself, and there's no
+   lingering `claude` chat session to get stuck in afterwards. If login
+   still doesn't take, Minty exits with `Couldn't sign in to Claude — run
+   'claude auth login' and try again.` — run that yourself, then rerun
+   `minty`.
 
 2. **Connect Kite.** Set a workspace, then ask for your holdings:
    ```
@@ -181,9 +186,6 @@ point changes (rare) — not for routine updates.
 
 ## Known gaps
 
-- **Claude login check isn't graceful yet** (see Onboarding step 1's 🚧
-  note) — this is the one first-run behavior in this doc that doesn't
-  match `docs/vision.md` §8 today.
 - **Windows is untested and has a known blocker.** The install steps
   above should work as written (`uv` and Claude Code both publish
   official Windows installers, and Minty's own path handling is all

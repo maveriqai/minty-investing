@@ -352,12 +352,27 @@ instead of finding it after the fact.
 Two separate connections happen at onboarding, and they're handled very
 differently on purpose:
 
-**1. LLM backend (Claude) — checked, not automated.** On first run, Minty
-checks whether the machine already has a working Claude subscription login
-(the same one the Agent SDK reuses under the hood). If not, Minty tells
-the user to run their own login and waits — it does not attempt to drive
-that login flow itself. Authenticating a subscription is exactly the kind
-of action a tool shouldn't perform on a user's behalf.
+**1. LLM backend (Claude) — checked, then handed off to the user's own
+browser.** On first run, Minty checks whether the machine already has a
+working Claude subscription login (the same one the Agent SDK reuses
+under the hood). If not, Minty runs `claude auth login` itself — a
+one-shot command, not a lingering chat session — which hands control
+straight to the user's own browser to complete the real OAuth flow, then
+returns to Minty once done. Minty only ever types the command; it never
+sees or touches the resulting credentials, and if login still doesn't
+take, it stops and tells the user to run `claude auth login` themselves
+rather than retrying silently. (Earlier design had Minty just print
+instructions and wait, on the theory that authenticating a subscription
+is exactly the kind of action a tool shouldn't perform on a user's
+behalf — revised after a live bug, found 2026-08-14: a user who stayed in
+the bare `claude` chat that instruction pointed them to, instead of
+exiting back to a shell, typed `minty` as a chat message, and Claude Code
+improvised a lookalike Minty from its own Skill/tool-permission machinery
+— none of Minty's own guarantees, e.g. the Sources footer or the
+order-tool deny-hook, applied on that path. Running the login command
+directly closes the gap at the source: no bare chat for the user to get
+stuck in. The credentials boundary — Minty types the command, the user
+supplies everything sensitive, in their own browser — is unchanged.)
 
 **2. Zerodha account — OAuth in the user's own browser, never through
 Minty.** On first use of any Kite-touching capability, Minty calls the
