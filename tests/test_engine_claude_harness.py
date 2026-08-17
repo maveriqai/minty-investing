@@ -175,6 +175,17 @@ def test_build_options_bypasses_interactive_permission_prompts():
     assert options.permission_mode == "bypassPermissions"
 
 
+def test_build_options_sets_kite_login_read_only_system_prompt():
+    # vision.md §8's inline read-only guarantee — this is the one always-on
+    # instruction in the engine, so it must survive regardless of which (if
+    # any) skill is configured. See cas._KITE_LOGIN_SYSTEM_PROMPT's comment
+    # for why this lives in system_prompt rather than a skill's SKILL.md.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert options.system_prompt == cas._KITE_LOGIN_SYSTEM_PROMPT
+    assert "read-only" in cas._KITE_LOGIN_SYSTEM_PROMPT
+
+
 def test_build_options_wires_a_pretooluse_hook():
     # Two hooks: order-tool denial and Bash-scope denial. Tool-call
     # budgets (engine/tool_budget.py) are audit-only — counted inside

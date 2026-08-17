@@ -74,6 +74,29 @@ from engine.workspace_notes import build_workspace_notes_server
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 
+# vision.md §8's own requirement: state the read-only guarantee inline, at
+# the moment a user is asked to connect their account, not buried in a docs
+# file. Found missing live 2026-08-17 — a real Kite login prompt showed
+# only Kite's own generic "AI is unpredictable" warning, forwarded verbatim
+# per kite_gateway's pass-through design (it never wraps or edits Kite's
+# own tool descriptions/responses — see mcp/kite_gateway/server.py), with
+# nothing from Minty itself. This fires from `system_prompt` rather than a
+# skill's own SKILL.md because the login prompt can be triggered without
+# any skill matching at all (an ad hoc "what are my holdings" goes straight
+# through `kite_gateway.get_holdings`) — deliberately the one always-on
+# instruction in the whole engine, kept to this single narrow behavior
+# rather than growing into a general system prompt.
+_KITE_LOGIN_SYSTEM_PROMPT = (
+    "Whenever you present a Kite/Zerodha login link to the user — whether "
+    "you're running a skill or just answering an ad hoc question that "
+    "needs live account data — state inline, in your own words, that "
+    "Minty is read-only against the connected account: order-placing and "
+    "order-modifying tools are never in Minty's own tool surface at all, "
+    "not just withheld by policy, regardless of what the underlying "
+    "Zerodha OAuth grant technically permits. Say this at the moment you "
+    "ask them to connect, not only if they ask later."
+)
+
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
 # old repo, but a genuine session-limit *hit* (an error_during_execution
 # exception whose text says so) hasn't been observed yet. Kept as one small,
@@ -186,6 +209,7 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
         "setting_sources": ["project"],
         "skills": native_skill_names if isinstance(tools.skills, list) else tools.skills,
         "permission_mode": "bypassPermissions",
+        "system_prompt": _KITE_LOGIN_SYSTEM_PROMPT,
     }
     if tools.builtin_tools is not None:
         kwargs["tools"] = list(tools.builtin_tools)
