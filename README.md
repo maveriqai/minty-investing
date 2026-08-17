@@ -65,11 +65,18 @@ itself.
 git clone <repo-url> minty
 cd minty
 uv sync
+uv run python ingest/build_instruments_master.py
 uv tool install --editable .
 ```
 
 - `uv sync` installs every Python dependency (and Python itself, if
   needed) into a project-local `.venv` — nothing system-wide.
+- `uv run python ingest/build_instruments_master.py` builds a local
+  reference database (`data/instruments.db`) of NSE/BSE symbols and sector
+  classifications — a few seconds, no login or API key needed (two public,
+  no-auth sources). Without it, morning-digest's sector-materiality check
+  silently degrades instead of failing loudly, so it's easy to miss if
+  skipped.
 - `uv tool install --editable .` registers a global `minty` command, so
   from here on you just type `minty` — the same way you'd type `claude`
   — instead of `uv run python -m engine.interactive`. See "How the
