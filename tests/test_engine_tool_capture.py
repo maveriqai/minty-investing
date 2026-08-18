@@ -109,3 +109,38 @@ def test_save_tool_result_none_for_uncaptured_tool(tmp_path):
     result = save_tool_result("Write", {"file_path": "x"}, "irrelevant", tmp_path)
     assert result is None
     assert not (tmp_path / "data").exists()
+
+
+def test_save_tool_result_skips_a_data_error_envelope(tmp_path):
+    # A *successful* MCP call whose payload wraps an application-level
+    # failure (NSE timeout etc.) — block.is_error in claude_agent_sdk.py
+    # doesn't catch this shape, so it's this function's job to.
+    result = save_tool_result(
+        "mcp__india_filings__get_surveillance_list",
+        {"list_type": "ASM"},
+        '{"source": "nse", "as_of": "2026-08-18", "data": {"error": "NSE timeout"}}',
+        tmp_path,
+    )
+    assert result is None
+    assert not (tmp_path / "data").exists()
+
+
+def test_save_tool_result_does_not_let_a_later_error_clobber_a_good_capture(tmp_path):
+    good = '{"source": "nse", "as_of": "2026-08-18", "data": [{"symbol": "IRCTC"}]}'
+    save_tool_result("mcp__india_filings__get_surveillance_list", {"list_type": "ASM"}, good, tmp_path)
+    result = save_tool_result(
+        "mcp__india_filings__get_surveillance_list",
+        {"list_type": "ASM"},
+        '{"source": "nse", "as_of": "2026-08-18", "data": {"error": "NSE timeout"}}',
+        tmp_path,
+    )
+    assert result is None
+    assert (tmp_path / "data" / f"surveillance_asm_{_TODAY}.json").read_text() == good
+
+
+def test_save_tool_result_still_overwrites_on_a_second_successful_call(tmp_path):
+    # The existing freshest-wins behavior (test_save_tool_result_overwrites_on_repeat_call)
+    # must survive unchanged for genuinely successful repeat calls.
+    save_tool_result("mcp__kite_gateway__get_holdings", {}, '{"data": "first"}', tmp_path)
+    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, '{"data": "second"}', tmp_path)
+    assert path.read_text() == '{"data": "second"}'

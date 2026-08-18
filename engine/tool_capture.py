@@ -21,6 +21,7 @@ throughout this codebase, not a guess.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -92,17 +93,46 @@ def capture_path(tool_name: str, tool_input: dict[str, Any], workspace_root: Pat
     return workspace_root / "data" / filename
 
 
+def _is_error_envelope(result_text: str) -> bool:
+    """True for the {"source","as_of","data"} envelope shape every Layer-2
+    tool uses to report an application-level failure (NSE timeout, thin
+    small-cap coverage) — a *successful* MCP call whose `data` field is
+    itself `{"error": "..."}`. Every skill script's own `_envelope_data`-
+    style check (e.g. red_flag_check.py) already treats this shape as
+    "missing, skip this check" — never a reason to keep it, let alone let
+    it overwrite a real capture. Non-JSON or non-dict-`data` text returns
+    False (not this shape), so ordinary/malformed content is unaffected.
+    """
+    try:
+        parsed = json.loads(result_text)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    data = parsed.get("data") if isinstance(parsed, dict) else None
+    return isinstance(data, dict) and "error" in data
+
+
 def save_tool_result(
     tool_name: str, tool_input: dict[str, Any], result_text: str, workspace_root: Path
 ) -> Path | None:
     """Writes `result_text` (the tool's own raw JSON text, unparsed) to its
     captured path, creating `data/` if needed. Returns the path written, or
-    None if this tool isn't captured. Overwrites on repeat calls — freshest
+    None if this tool isn't captured, or if the result is an error envelope
+    (see `_is_error_envelope`) — skipped rather than saved, so it can't
+    silently clobber an earlier successful capture at the same path.
+
+    Otherwise overwrites on repeat calls — freshest *successful* result
     wins, matching a retried or re-fetched call always meaning "trust this
-    one," never a reason to keep stale data around.
+    one," never a reason to keep stale data around. Found live 2026-08-18:
+    a market-wide file (`surveillance_asm_<date>.json`, shared across every
+    symbol called that day) got clobbered by a later call's error stub —
+    `block.is_error` in claude_agent_sdk.py's `ClaudeSession.send()` only catches
+    SDK/MCP-protocol-level failures, not this data-level shape, so the
+    stub sailed straight through as an ordinary "successful" save.
     """
     path = capture_path(tool_name, tool_input, workspace_root)
     if path is None:
+        return None
+    if _is_error_envelope(result_text):
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(result_text)
