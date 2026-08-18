@@ -159,6 +159,34 @@ with a Sources footer, and carries the SEBI disclaimer. Minty is
 read-only against your broker by construction — order-placing tools are
 never in its tool surface at all, not just withheld by policy.
 
+## Optional: morning reminder
+
+Minty never runs unattended — every digest is generated on-demand, in a
+real conversation you start (see `docs/vision.md` §2 for why). What *can*
+run in the background is a lightweight, no-agent OS notification that
+just nudges you each weekday morning to go ask for one:
+
+```bash
+uv run python -m engine.reminder.cli install                     # 08:30 Mon-Fri by default
+uv run python -m engine.reminder.cli install --time 09:00 --message "Custom text"
+uv run python -m engine.reminder.cli status
+uv run python -m engine.reminder.cli uninstall
+```
+
+- **macOS** — installs a `launchd` LaunchAgent. Uses `terminal-notifier`
+  if it's on `PATH` (`brew install terminal-notifier`) so clicking the
+  notification opens a Terminal at the repo root; falls back to a plain
+  `osascript` notification otherwise (works, but a long-documented macOS
+  quirk means clicking it opens Script Editor instead of anything
+  useful — `install` prints a note when this fallback is in effect).
+- **Windows** — installs a Task Scheduler task that shows a native toast
+  notification via PowerShell's built-in WinRT APIs, no `Install-Module`
+  needed. Built and unit-tested, but **not live-verified** — see "Known
+  gaps" below.
+- Clicking the notification never runs anything on its own — starting the
+  actual digest conversation stays a deliberate step you take, matching
+  the "manual trigger, no agent involved" design in `docs/vision.md` §2.
+
 ## One-shot / scripted usage
 
 For a single prompt with no ongoing conversation:
@@ -197,6 +225,9 @@ point changes (rare) — not for routine updates.
   Windows, so completing Kite login there will raise `AttributeError`
   instead of working. Needs a Windows-appropriate way to restrict that
   file before this is real Windows support, not just untested Windows
-  support.
+  support. The optional reminder CLI's Windows backend
+  (`engine/reminder/windows.py`) is in the same boat — built and
+  unit-tested against mocked `schtasks`/PowerShell calls, but never run
+  for real, for the same no-Windows-machine reason.
 - No CI, no CONTRIBUTING doc yet — contributor-facing surface
   (`docs/vision.md` §7 Track 2) hasn't started.
