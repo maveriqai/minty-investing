@@ -51,6 +51,14 @@ def test_ensure_logged_in_skips_login_flow_when_already_logged_in(monkeypatch):
     assert calls == [["claude", "auth", "status", "--json"]]
 
 
+def test_ensure_logged_in_prints_confirmation_when_already_logged_in(monkeypatch, capsys):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: _FakeCompleted(json.dumps({"loggedIn": True}))
+    )
+    claude_login.ensure_logged_in()
+    assert "Claude account already connected." in capsys.readouterr().out
+
+
 def test_ensure_logged_in_runs_login_then_rechecks(monkeypatch):
     calls = []
 

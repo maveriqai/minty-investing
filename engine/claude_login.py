@@ -55,8 +55,17 @@ def ensure_logged_in() -> bool:
     and completes the real login prompt/URL — then re-checks. Returns
     False only if login was attempted and still didn't take, so the caller
     can stop before opening a session that would just fail the same way.
+
+    Prints a one-line confirmation either way — found live 2026-08-19
+    (real dogfooding, first fresh-clone run by hand): the already-
+    logged-in path fell straight through to `minty`'s own "Minty —
+    connected." with no acknowledgment of *what* had just been checked,
+    while the not-logged-in path already prints "Connecting your Claude
+    account...". Silence on the common (already-logged-in) path read as
+    ambiguous, not as "everything's fine."
     """
     if is_logged_in():
+        print("Claude account already connected.")
         return True
     print("Connecting your Claude account (one-time) ...")
     subprocess.run(["claude", "auth", "login"], check=False)
