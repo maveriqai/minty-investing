@@ -17,6 +17,28 @@ within a single morning-digest run (index snapshot vs. every held symbol's
 live price) — disambiguated by symbol shape: index tickers are always
 "^"-prefixed (^NSEI, ^BSESN, ...), a stable convention already used
 throughout this codebase, not a guess.
+
+`kite_gateway.get_profile` gets one deliberately different treatment,
+below: write-once, not overwrite-every-call like everything else here. The
+Zerodha account identity anchor (`data/account_identity.json`) exists to
+catch a *different* account silently getting connected later — so once
+it's set, no later `get_profile` call may touch it again, including
+morning-digest's own step 0 (which calls `get_profile` purely to check
+Kite reachability, earlier in the same turn than step 3's actual identity
+comparison). An earlier version auto-captured `get_profile` the ordinary
+overwrite-every-call way and that step-0 ping silently clobbered the
+anchor before step 3 ever compared against it — found in review,
+2026-08-20. A second version fixed that with a model-callable
+`update_account_identity` tool instead, gated by a "only call this when
+it's safe" instruction — rejected before it shipped: a tool that can
+rewrite the one file meant to catch Minty trusting the wrong account is
+exactly the kind of capability that shouldn't depend on the model
+choosing correctly every time. This — a fixed, install-wide path that
+silently no-ops once the file exists — is enforced in code, not prose,
+and there is no tool call, from any skill, that can ever change an
+existing anchor. Actually switching accounts is a deliberate, out-of-band
+action: delete `data/account_identity.json` yourself, and the next
+successful `get_profile` call establishes a fresh one.
 """
 
 from __future__ import annotations
@@ -28,7 +50,14 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from engine.workspace import REPO_ROOT
+
 _IST = ZoneInfo("Asia/Kolkata")
+
+# Install-wide, not workspace content — see this module's own docstring
+# for why get_profile is write-once here instead of living in CAPTURE_SPECS
+# below with everything else.
+ACCOUNT_IDENTITY_FILE = REPO_ROOT / "data" / "account_identity.json"
 
 
 def today_ist() -> str:
@@ -79,10 +108,18 @@ def parse_mcp_tool_name(tool_name: str) -> tuple[str, str] | None:
 
 
 def capture_path(tool_name: str, tool_input: dict[str, Any], workspace_root: Path) -> Path | None:
-    """None if `tool_name` isn't a captured tool, or a required arg is missing from `tool_input`."""
+    """None if `tool_name` isn't a captured tool, or a required arg is missing from `tool_input`.
+
+    `get_profile` is special-cased ahead of `CAPTURE_SPECS`: write-once,
+    install-wide, ignoring `workspace_root` entirely. None once
+    `ACCOUNT_IDENTITY_FILE` already exists — the only enforcement this
+    anchor gets, and it's a plain filesystem check, not a model decision.
+    """
     parsed = parse_mcp_tool_name(tool_name)
     if parsed is None:
         return None
+    if parsed == ("kite_gateway", "get_profile"):
+        return None if ACCOUNT_IDENTITY_FILE.exists() else ACCOUNT_IDENTITY_FILE
     filename_fn = CAPTURE_SPECS.get(parsed)
     if filename_fn is None:
         return None
@@ -139,4 +176,4 @@ def save_tool_result(
     return path
 
 
-__all__ = ["capture_path", "parse_mcp_tool_name", "save_tool_result", "today_ist"]
+__all__ = ["ACCOUNT_IDENTITY_FILE", "capture_path", "parse_mcp_tool_name", "save_tool_result", "today_ist"]

@@ -270,19 +270,33 @@ scoping work for whoever picks up §6 item 1:**
   hardcoded to one file or opening up to an arbitrary path — same
   "engine decides where, model decides what" property as today, just
   parameterized.
-- `data/account_identity.json`'s actual write path isn't specified
-  either. The obvious option is extending `tool_capture.py`'s existing
-  auto-capture mechanism — add a `(kite_gateway, get_profile)` →
-  `data/account_identity.json` entry to `CAPTURE_SPECS`, reusing
-  machinery that already exists rather than building a new tool. But
-  that machinery is currently built around `workspace_root`-relative
-  paths (every other capture lands under `workspace/data/`), and this
-  one needs to be workspace-*independent* — top-level `data/`, per the
-  "Resulting shape" diagram above — so it likely needs
-  `tool_capture.py`'s own path resolution extended to support a
-  workspace-independent target, not just a one-line `CAPTURE_SPECS`
-  addition. Needs a real look at `engine/tool_capture.py` before
-  assuming this is small.
+- `data/account_identity.json`'s write path went through three designs
+  during implementation, 2026-08-20, each rejected for a concrete reason
+  found along the way:
+  1. **`tool_capture.py`'s ordinary auto-capture** (overwrite on every
+     call, same as everything else it captures) — the obvious-looking
+     reuse. Rejected: morning-digest's own step 0 also calls `get_profile`,
+     purely to check reachability, earlier in the same turn than step 3's
+     read-old-then-compare logic; auto-capturing unconditionally meant
+     step 0's ping silently overwrote the anchor before step 3 ever got to
+     compare against it — defeating the account-mismatch check this file
+     exists for.
+  2. **A model-callable `update_account_identity` tool**, gated by a "call
+     this only after comparing, never on a mismatch" instruction — fixed
+     (1) but rejected before shipping: a tool that can rewrite the one
+     file meant to catch Minty trusting the wrong account shouldn't depend
+     on the model choosing correctly every time it's tempted to call it,
+     however clear the instruction reads. Exposing the capability at all
+     was the actual problem, not the wording of when to use it.
+  3. **Landed on: write-once, engine-enforced, no tool at all.** `get_profile`
+     is special-cased in `capture_path()` (`engine/tool_capture.py`) to
+     write to the fixed `data/account_identity.json` only if that file
+     doesn't already exist yet — a plain filesystem check, not a model
+     decision, so no call, from any skill, can ever change an existing
+     anchor. A genuine account switch is a deliberate, out-of-band action
+     — delete the file by hand — not something reachable from inside a
+     conversation. Both skills' mismatch branches stay a hard stop with no
+     resolution path other than that manual step.
 
 **Execution pattern for ported skills — plain, not staged, by default.**
 `stages` (`docs/staged-skill-execution-design.md`) exists to fix a
@@ -370,6 +384,21 @@ first connection). Falls through to the second branch — the practical
 next action for the user is the same either way ("ask a holdings
 question"), so a third message isn't worth building for a state this
 rare.
+
+The reverse state — holdings exist but no identity anchor does — turned
+out *not* to be rare, and was found and fixed during implementation
+(2026-08-20): only `morning-digest` called `get_profile`;
+`portfolio-health-check` called `get_holdings` directly and never
+established an anchor at all, so a user whose first action was "how's my
+portfolio doing" (or the ad hoc "what are my holdings" this section's own
+README draft suggests) would have real cached holdings but this check
+would still say "not connected" indefinitely. Fixed by having
+`portfolio-health-check` also verify/establish identity, mirroring
+morning-digest's step 3. `red-flag-scan` never touches Kite at all, so it
+was never part of this gap. One residual case, not yet fixed: a fully ad
+hoc holdings question that Claude answers without invoking either skill —
+still wouldn't populate the anchor. Not addressed; flagged for whoever
+next touches this.
 
 Neither branch blocks anything — both print, then the normal `you>`
 prompt follows immediately either way. Unlike Claude's login (a hard

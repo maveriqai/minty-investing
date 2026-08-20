@@ -2,7 +2,7 @@
 name: portfolio-health-check
 description: Use when the user asks for a portfolio-wide health check, concentration review, or overall winners/losers across their real brokerage holdings — e.g. "how's my portfolio doing", "am I too concentrated in anything", "what are my biggest winners/losers". Not for single-stock research (no portfolio context needed) or order placement (out of scope by policy).
 expected_outputs:
-  - "workspaces/{workspace}/results/health_check_{date}.json"
+  - "{workspace}/results/health_check_{date}.json"
 deterministic_scripts:
   - id: health_check
     path: scripts/health_check.py
@@ -29,16 +29,37 @@ regardless of which broker it came from.
 
 ## Steps
 
-1. **Confirm a workspace.** This skill writes into the current workspace's
-   `data/`, `results/`, and `notes.md`. If no workspace is open, ask the
-   user to open or name one first rather than writing to repo root.
+1. **The workspace is already open.** The engine hands you the one active
+   workspace's path before you ever see this turn (the "Active workspace:"
+   note above) — there's no naming step, and no case where none is open.
+   Write into its `data/`, `results/`, and `notes.md` as documented below.
 
-2. **Fetch real holdings from the connected broker.** Currently
-   `kite_gateway` — call `kite_gateway.get_holdings` (read-only by
-   construction: the order-placing/-modifying tools aren't in
-   `kite_gateway`'s tool surface at all, see docs/vision.md §5). The engine
-   automatically saves the raw result to `data/holdings_<YYYY-MM-DD>.json`
-   in the workspace as soon as the call returns — no separate save step.
+2. **Verify account identity, then fetch real holdings from the connected
+   broker.** Read `data/account_identity.json` at the **repo root** first,
+   if it exists (not inside the workspace — this is an install-wide
+   anchor, not workspace content, shared with morning-digest). Then call
+   `kite_gateway.get_profile` and compare its `user_id` against whatever
+   you just read.
+   - **No anchor file yet:** the engine writes one automatically, the
+     moment this call succeeds — nothing for you to do. Just proceed.
+   - **Anchor existed and matches:** proceed.
+   - **Anchor existed and doesn't match:** **Stop** — report plainly that
+     a different Zerodha account is connected than expected, and don't
+     fetch or overwrite the workspace's `data/holdings_<date>.json`. Minty
+     is a single-account tool by design — a second account's data would
+     silently corrupt the cached snapshot rather than raise an error.
+     There's no tool call that can update the anchor — it's engine-managed
+     and write-once (see `engine/tool_capture.py`) — so this stays flagged
+     on every run until a human resolves it by hand (deleting
+     `data/account_identity.json`), not something you can fix from inside
+     a conversation.
+
+   Currently `kite_gateway` is the only connected broker — call
+   `kite_gateway.get_holdings` (read-only by construction: the
+   order-placing/-modifying tools aren't in `kite_gateway`'s tool surface
+   at all, see docs/vision.md §5). The engine automatically saves the raw
+   result to `data/holdings_<YYYY-MM-DD>.json` in the workspace as soon as
+   the call returns — no separate save step.
 
 3. **Run the computation, not the model** — call the `run_health_check`
    tool (not Bash) with `workspace_root` set to the exact active-workspace

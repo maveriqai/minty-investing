@@ -16,7 +16,7 @@ from engine import staged_skills
 from engine.guardrail import GuardrailPolicy
 from engine.harnesses.base import ToolConfig
 from engine.staged_skill_tools import build_staged_workflow_tools_server
-from engine.workspace import WORKSPACES_ROOT
+from engine.workspace import DEV_WORKSPACES_ROOT, WORKSPACE_ROOT
 
 FAKE_TOOLS = ToolConfig(mcp_servers={}, guardrail=GuardrailPolicy(), skills=["morning-digest"])
 
@@ -78,19 +78,19 @@ def test_staged_tool_annotations_mark_it_open_world_and_non_idempotent():
     assert built.annotations.idempotentHint is False
 
 
-def test_staged_tool_handler_rejects_a_workspace_root_outside_workspaces(monkeypatch):
+def test_staged_tool_handler_rejects_a_workspace_root_outside_known_roots(monkeypatch):
     from engine.staged_skill_tools import _make_staged_tool
 
     built = _make_staged_tool("morning-digest", FAKE_TOOLS)
     result = asyncio.run(built.handler({"workspace_root": "/etc"}))
     assert result["is_error"] is True
-    assert str(WORKSPACES_ROOT) in result["content"][0]["text"]
+    assert str(WORKSPACE_ROOT) in result["content"][0]["text"]
 
 
 def test_staged_tool_handler_calls_run_staged_skill_then_compose_and_save(tmp_path, monkeypatch):
     from engine.staged_skill_tools import _make_staged_tool
 
-    workspace_root = WORKSPACES_ROOT / "__test_staged_tool_wiring__"
+    workspace_root = DEV_WORKSPACES_ROOT / "__test_staged_tool_wiring__"
     (workspace_root / "data").mkdir(parents=True, exist_ok=True)
     (workspace_root / "results").mkdir(parents=True, exist_ok=True)
     try:

@@ -120,8 +120,8 @@ def test_run_staged_skill_lists_a_prior_stages_missing_produces_in_the_next_prom
     stages = [
         # Declares produces, but the fake session never actually writes it —
         # fail-open (§9, decided 2026-08-05): recorded as failed, not raised.
-        _stage("a", produces=["workspaces/{workspace}/results/digest_{date}.json"]),
-        _stage("b", needs=["workspaces/{workspace}/results/digest_{date}.json"]),
+        _stage("a", produces=["{workspace}/results/digest_{date}.json"]),
+        _stage("b", needs=["{workspace}/results/digest_{date}.json"]),
     ]
     sessions = [_FakeSession(["A"]), _FakeSession(["B"])]
     harness = _FakeHarness(sessions)
@@ -147,7 +147,7 @@ def test_run_staged_skill_reports_a_present_needs_file(tmp_path, monkeypatch):
     results_dir.mkdir(parents=True)
     (results_dir / "digest_2026-08-07.json").write_text("{}")
 
-    stages = [_stage("b", needs=["workspaces/{workspace}/results/digest_{date}.json"])]
+    stages = [_stage("b", needs=["{workspace}/results/digest_{date}.json"])]
     session = _FakeSession(["ok"])
     harness = _FakeHarness([session])
 
@@ -189,7 +189,7 @@ def test_compose_and_save_writes_footer_and_md_output(tmp_path, monkeypatch):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         '---\nname: morning-digest\ndescription: test\n'
-        'expected_outputs:\n  - "workspaces/{workspace}/results/digest_{date}.md"\n---\n'
+        'expected_outputs:\n  - "{workspace}/results/digest_{date}.md"\n---\n'
     )
     monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
@@ -221,7 +221,7 @@ def test_compose_and_save_is_a_noop_when_final_text_is_blank(tmp_path, monkeypat
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         '---\nname: morning-digest\ndescription: test\n'
-        'expected_outputs:\n  - "workspaces/{workspace}/results/digest_{date}.md"\n---\n'
+        'expected_outputs:\n  - "{workspace}/results/digest_{date}.md"\n---\n'
     )
     monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)

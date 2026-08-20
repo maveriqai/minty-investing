@@ -246,11 +246,27 @@ exact match between the Sources footer and the files actually on disk,
 where the original single-turn run had dropped a third of its own
 citations — see the design doc's §10 for the numbers.
 
-**Workspace file layout.** A local directory, never committed:
-root-level `notes.md` / `preferences.md` / `portfolio.md` for durable
-cross-cutting facts, `workspaces/<name>/notes.md` for topic/thesis-scoped
-findings. Plain markdown, the same compounding-vault model as the old
-repo — this part worked and isn't being redesigned, just carried over.
+**Workspace file layout.** One fixed, unnamed `workspace/` per install — a
+local directory, never committed — is the whole product surface; there's
+no naming decision and no per-topic split (`docs/next-phase-plan.md` §4,
+decided after live dogfooding surfaced "what is a workspace and why do I
+need one" as real friction, and after real usage showed no named
+workspace beyond the default was ever used for what naming was built for).
+`workspace/notes.md` holds durable findings and a `## Preferences`
+section; `workspace/theses/<SYMBOL>.md` (one file per symbol) is the one
+exception to "flat" — thesis-tracker reads, merges, and rewrites a thesis,
+the one place cross-symbol collision is a real risk. Everything else
+(`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
+`screen-indian-stocks`) writes independent, date-stamped files straight
+into `workspace/results/`, never edited after the fact. The Zerodha
+account identity anchor lives outside the workspace entirely, at
+install-wide `data/account_identity.json` — it's a machine safety check,
+not a note, written once, deterministically, on the first successful
+`kite_gateway.get_profile` call, and never overwritten by any tool call a
+model can make (see `engine/tool_capture.py`). An internal-only `MINTY_WORKSPACE`
+env var can still resolve a named `.dev-workspaces/<name>/` sandbox for
+test isolation, but this is never a conversational command or something a
+real user's install ever needs.
 
 ## 5. Non-negotiables
 

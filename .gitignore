@@ -1,8 +1,12 @@
 # --- user data: never commit (see docs/vision.md §5 — Non-negotiables) ---
-notes.md
-preferences.md
-portfolio.md
+workspace/
+.dev-workspaces/
+# legacy dev-sandbox path, superseded by .dev-workspaces/ above
 workspaces/
+# legacy root-level notes.md, superseded by workspace/notes.md +
+# data/account_identity.json (docs/next-phase-plan.md §4) — still ignored
+# since real installs may still have one on disk until migrated
+/notes.md
 results/
 data/
 .env

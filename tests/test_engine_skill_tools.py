@@ -59,15 +59,25 @@ def test_missing_required_args_flags_only_missing_required_ones():
     assert _missing_required_args(RED_FLAG_SCRIPT_SPEC, {"symbol": "RELIANCE"}) == []
 
 
-def test_resolve_workspace_root_accepts_a_real_dir_under_workspaces_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path)
+def _patch_roots(monkeypatch, tmp_path):
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "__no_fixed_workspace__")
+    monkeypatch.setattr(workspace_module, "DEV_WORKSPACES_ROOT", tmp_path)
+
+
+def test_resolve_workspace_root_accepts_a_real_dir_under_a_known_root(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"
     workspace.mkdir()
     assert _resolve_workspace_root(str(workspace)) == workspace.resolve()
 
 
-def test_resolve_workspace_root_rejects_a_path_outside_workspaces_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path / "workspaces")
+def test_resolve_workspace_root_rejects_a_path_outside_known_roots(tmp_path, monkeypatch):
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "__no_fixed_workspace__")
+    monkeypatch.setattr(workspace_module, "DEV_WORKSPACES_ROOT", tmp_path / "workspaces")
     (tmp_path / "workspaces").mkdir()
     outside = tmp_path / "elsewhere"
     outside.mkdir()
@@ -75,7 +85,7 @@ def test_resolve_workspace_root_rejects_a_path_outside_workspaces_root(tmp_path,
 
 
 def test_resolve_workspace_root_rejects_a_nonexistent_path(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path)
+    _patch_roots(monkeypatch, tmp_path)
     assert _resolve_workspace_root(str(tmp_path / "nope")) is None
 
 
@@ -103,7 +113,7 @@ def test_build_skill_tools_server_none_when_no_skill_declares_scripts(tmp_path, 
 
 
 def test_run_red_flag_check_handler_invokes_the_real_script_and_returns_its_output(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path)
+    _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"
     (workspace / "data").mkdir(parents=True)
     (workspace / "results").mkdir()
@@ -134,7 +144,7 @@ def test_run_red_flag_check_handler_invokes_the_real_script_and_returns_its_outp
 
 
 def test_run_health_check_handler_invokes_the_real_script_and_writes_expected_output(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path)
+    _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"
     (workspace / "data").mkdir(parents=True)
     (workspace / "results").mkdir()
@@ -159,7 +169,7 @@ def test_run_health_check_handler_invokes_the_real_script_and_writes_expected_ou
 
 
 def test_handler_reports_missing_required_arg_without_running_anything(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path)
+    _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"
     workspace.mkdir()
 
@@ -173,7 +183,10 @@ def test_handler_reports_missing_required_arg_without_running_anything(tmp_path,
 
 
 def test_handler_rejects_workspace_root_outside_workspaces_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools_module, "WORKSPACES_ROOT", tmp_path / "workspaces")
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "__no_fixed_workspace__")
+    monkeypatch.setattr(workspace_module, "DEV_WORKSPACES_ROOT", tmp_path / "workspaces")
     (tmp_path / "workspaces").mkdir()
     outside = tmp_path / "elsewhere"
     outside.mkdir()

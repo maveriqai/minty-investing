@@ -42,7 +42,7 @@ from engine.skill_tools import (
     _resolve_workspace_root,
 )
 from engine.tool_capture import today_ist
-from engine.workspace import WORKSPACES_ROOT
+from engine.workspace import WORKSPACE_ROOT
 
 STAGED_WORKFLOWS_SERVER_NAME = "staged_workflows"
 
@@ -77,7 +77,7 @@ def _make_staged_tool(skill_name: str, tools: ToolConfig) -> SdkMcpTool[Any]:
                         "type": "text",
                         "text": (
                             f"{_WORKSPACE_ROOT_PARAM!r} must be an existing directory under "
-                            f"{WORKSPACES_ROOT} — got {args.get(_WORKSPACE_ROOT_PARAM)!r}"
+                            f"{WORKSPACE_ROOT} — got {args.get(_WORKSPACE_ROOT_PARAM)!r}"
                         ),
                     }
                 ],

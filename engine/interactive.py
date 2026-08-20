@@ -19,10 +19,16 @@ from engine.claude_login import ensure_logged_in
 from engine.config import build_tool_config
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
-from engine.workspace import FIXED_WATCH_ROOTS, changed_since_all, resolve_workspace, snapshot_all
+from engine.kite_status import kite_connection_status_line
+from engine.workspace import (
+    FIXED_WATCH_ROOTS,
+    REPO_ROOT,
+    changed_since_all,
+    resolve_active_workspace,
+    snapshot_all,
+)
 
 _EXIT_COMMANDS = {"exit", "quit", ":q"}
-_WORKSPACE_PREFIX = "/workspace "
 _IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -35,6 +41,20 @@ def _augment_with_workspace(prompt: str, workspace_root: Path) -> str:
         f"engine, not something to create yourself. Use this exact path for "
         f"any workspace file reads/writes this turn.]\n\n{prompt}"
     )
+
+
+def _workspace_name(workspace_root: Path) -> str:
+    """`workspace_root`'s own path relative to REPO_ROOT ("workspace", or
+    ".dev-workspaces/<name>" under MINTY_WORKSPACE) — what a skill's own
+    `{workspace}`-placeholder patterns (engine/skills.py) substitute in.
+    Falls back to the bare directory name if `workspace_root` isn't under
+    this repo at all (a test double standing in for a real workspace) —
+    that fallback never fires in production, where every real
+    workspace_root always is."""
+    try:
+        return str(workspace_root.relative_to(REPO_ROOT))
+    except ValueError:
+        return workspace_root.name
 
 
 def _report_changed_files(
@@ -129,21 +149,18 @@ async def _run_turn(
     today = datetime.now(_IST).date().isoformat()
     changed = changed_since_all(FIXED_WATCH_ROOTS, before)
     if workspace_root is not None:
-        _save_composed_outputs(
-            "".join(chunks), changed, skill_names or [], workspace_name=workspace_root.name, date=today
-        )
+        workspace_name = _workspace_name(workspace_root)
+        _save_composed_outputs("".join(chunks), changed, skill_names or [], workspace_name=workspace_name, date=today)
         changed = changed_since_all(FIXED_WATCH_ROOTS, before)
-    _report_changed_files(changed, skill_names or [], workspace_root.name if workspace_root else None, date=today)
+    else:
+        workspace_name = None
+    _report_changed_files(changed, skill_names or [], workspace_name, date=today)
 
 
-async def _repl(harness: Harness) -> int:
+async def _repl(harness: Harness, workspace_root: Path) -> int:
     tools: ToolConfig = build_tool_config()
     skill_names = tools.skills if isinstance(tools.skills, list) else []
-    print(
-        "Minty — connected. Type a message, 'exit' to quit, "
-        "or '/workspace <name>' to set the active workspace."
-    )
-    workspace_root: Path | None = None
+    print("Minty — connected. Type a message, 'exit' to quit.")
     async with harness.open_session(tools) as session:
         while True:
             try:
@@ -156,14 +173,6 @@ async def _repl(harness: Harness) -> int:
                 continue
             if prompt.lower() in _EXIT_COMMANDS:
                 break
-            if prompt.startswith(_WORKSPACE_PREFIX):
-                name = prompt[len(_WORKSPACE_PREFIX) :].strip()
-                if not name:
-                    print("usage: /workspace <name>", file=sys.stderr)
-                    continue
-                workspace_root = resolve_workspace(name)
-                print(f"[workspace set: {workspace_root}]")
-                continue
             print("minty> ", end="", flush=True)
             await _run_turn(session, prompt, workspace_root=workspace_root, skill_names=skill_names)
     return 0
@@ -177,7 +186,13 @@ def main() -> None:
     if not ensure_logged_in():
         print("Couldn't sign in to Claude — run 'claude auth login' and try again.", file=sys.stderr)
         sys.exit(1)
-    sys.exit(asyncio.run(_repl(ClaudeAgentSDKHarness())))
+    # The one fixed, unnamed workspace for this install (docs/next-phase-plan.md
+    # §4) — resolved before the REPL ever starts, same "check before printing
+    # anything" shape as the Claude-login check above, so the Kite status
+    # line below can read its holdings snapshot.
+    workspace_root = resolve_active_workspace()
+    print(kite_connection_status_line(workspace_root))
+    sys.exit(asyncio.run(_repl(ClaudeAgentSDKHarness(), workspace_root)))
 
 
 if __name__ == "__main__":

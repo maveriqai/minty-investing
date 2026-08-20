@@ -26,7 +26,7 @@ from typing import Any
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
 from engine.skills import SKILLS_ROOT, load_deterministic_scripts
-from engine.workspace import WORKSPACES_ROOT
+from engine.workspace import WORKSPACE_ROOT, is_within_known_workspace_roots
 
 _WORKSPACE_ROOT_PARAM = "workspace_root"
 _WORKSPACE_ROOT_DESCRIPTION = (
@@ -81,15 +81,14 @@ def _missing_required_args(script_spec: dict, args: dict[str, str]) -> list[str]
 
 
 def _resolve_workspace_root(raw: str) -> Path | None:
-    """None if `raw` doesn't resolve to a real directory inside
-    WORKSPACES_ROOT — defense in depth against a model-supplied path
-    escaping the workspaces tree, since this becomes a subprocess cwd."""
+    """None if `raw` doesn't resolve to a real directory inside a known
+    workspace root — defense in depth against a model-supplied path
+    escaping the workspace tree, since this becomes a subprocess cwd."""
     try:
         resolved = Path(raw).resolve()
     except OSError:
         return None
-    workspaces_root = WORKSPACES_ROOT.resolve()
-    if workspaces_root not in resolved.parents and resolved != workspaces_root:
+    if not is_within_known_workspace_roots(resolved):
         return None
     if not resolved.is_dir():
         return None
@@ -130,7 +129,7 @@ def _make_tool(skill_name: str, script_spec: dict) -> SdkMcpTool[Any]:
                         "type": "text",
                         "text": (
                             f"{_WORKSPACE_ROOT_PARAM!r} must be an existing directory under "
-                            f"{WORKSPACES_ROOT} — got {args.get(_WORKSPACE_ROOT_PARAM)!r}"
+                            f"{WORKSPACE_ROOT} — got {args.get(_WORKSPACE_ROOT_PARAM)!r}"
                         ),
                     }
                 ],

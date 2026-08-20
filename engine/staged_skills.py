@@ -40,6 +40,18 @@ def _exists(resolved_pattern: str) -> bool:
     return any(skills.REPO_ROOT.glob(resolved_pattern))
 
 
+def _workspace_name(workspace_root: Path) -> str:
+    """`workspace_root`'s own path relative to REPO_ROOT ("workspace", or
+    ".dev-workspaces/<name>" under MINTY_WORKSPACE) — what a skill's own
+    `{workspace}`-placeholder patterns substitute in. Falls back to the
+    bare directory name if `workspace_root` isn't under this repo at all
+    (a test double standing in for a real workspace)."""
+    try:
+        return str(workspace_root.relative_to(skills.REPO_ROOT))
+    except ValueError:
+        return workspace_root.name
+
+
 def _build_stage_prompt(
     skill_body: str, stage: dict[str, Any], *, present: list[str], missing: list[str]
 ) -> str:
@@ -97,9 +109,15 @@ async def run_staged_skill(
     total_duration_ms = 0
     total_tokens = 0
 
+    # workspace_name is workspace_root's own path relative to REPO_ROOT
+    # ("workspace", or ".dev-workspaces/<name>" under MINTY_WORKSPACE), not
+    # just its directory name — SKILL.md's own `needs`/`produces` patterns
+    # are `"{workspace}/results/..."`, with no separate "workspaces/"
+    # prefix to reintroduce (docs/next-phase-plan.md §4: one fixed,
+    # unnamed workspace, no naming decision left anywhere).
     for stage in stages:
         needed = [
-            skills.resolve_pattern(p, workspace_name=workspace_root.name, date=date)
+            skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
             for p in stage.get("needs", [])
         ]
         present = [p for p in needed if _exists(p)]
@@ -119,7 +137,7 @@ async def run_staged_skill(
                 print(f"[stage {stage['id']}] [budget] {line}")
 
             expected = [
-                skills.resolve_pattern(p, workspace_name=workspace_root.name, date=date)
+                skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
                 for p in stage.get("produces", [])
             ]
             stage_status[stage["id"]] = all(_exists(p) for p in expected) if expected else True
@@ -177,7 +195,9 @@ def compose_and_save(
         return full_text
     date = today_ist()
     for pattern in skills.composed_output_patterns(skill_name):
-        resolved = skills.resolve_pattern(pattern, workspace_name=workspace_root.name, date=date)
+        resolved = skills.resolve_pattern(
+            pattern, workspace_name=_workspace_name(workspace_root), date=date
+        )
         if "{workspace}" in resolved:
             continue
         path = skills.REPO_ROOT / resolved

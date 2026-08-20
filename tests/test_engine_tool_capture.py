@@ -82,6 +82,53 @@ def test_capture_path_get_quote_mixed_symbols_treated_as_holdings(tmp_path):
     assert mixed.name == f"live_quotes_{_TODAY}.json"
 
 
+def test_capture_path_get_profile_targets_the_fixed_install_wide_anchor(tmp_path, monkeypatch):
+    monkeypatch.setattr("engine.tool_capture.ACCOUNT_IDENTITY_FILE", tmp_path / "data" / "account_identity.json")
+    assert capture_path("mcp__kite_gateway__get_profile", {}, tmp_path) == tmp_path / "data" / "account_identity.json"
+
+
+def test_capture_path_get_profile_ignores_workspace_root(tmp_path, monkeypatch):
+    # Install-wide, not workspace content -- whatever workspace_root is
+    # passed shouldn't affect where this lands.
+    fixed_path = tmp_path / "data" / "account_identity.json"
+    monkeypatch.setattr("engine.tool_capture.ACCOUNT_IDENTITY_FILE", fixed_path)
+
+    one = capture_path("mcp__kite_gateway__get_profile", {}, tmp_path / "workspace-a")
+    other = capture_path("mcp__kite_gateway__get_profile", {}, tmp_path / "workspace-b")
+
+    assert one == other == fixed_path
+
+
+def test_capture_path_get_profile_is_write_once(tmp_path, monkeypatch):
+    # The only enforcement this anchor gets: once the file exists, no later
+    # get_profile call -- e.g. morning-digest's own step 0 reachability
+    # ping -- may touch it again. See engine/tool_capture.py's docstring
+    # for why this replaced a model-callable update tool.
+    fixed_path = tmp_path / "data" / "account_identity.json"
+    monkeypatch.setattr("engine.tool_capture.ACCOUNT_IDENTITY_FILE", fixed_path)
+    assert capture_path("mcp__kite_gateway__get_profile", {}, tmp_path) == fixed_path
+
+    fixed_path.parent.mkdir(parents=True)
+    fixed_path.write_text('{"data": {"user_id": "AB1234"}}')
+
+    assert capture_path("mcp__kite_gateway__get_profile", {}, tmp_path) is None
+
+
+def test_save_tool_result_get_profile_writes_once_then_no_ops(tmp_path, monkeypatch):
+    fixed_path = tmp_path / "data" / "account_identity.json"
+    monkeypatch.setattr("engine.tool_capture.ACCOUNT_IDENTITY_FILE", fixed_path)
+
+    first = save_tool_result("mcp__kite_gateway__get_profile", {}, '{"data": {"user_id": "AB1234"}}', tmp_path)
+    assert first == fixed_path
+    assert fixed_path.read_text() == '{"data": {"user_id": "AB1234"}}'
+
+    # A later call -- e.g. a different account's own get_profile, or the
+    # same account's step-0 reachability ping -- must not overwrite it.
+    second = save_tool_result("mcp__kite_gateway__get_profile", {}, '{"data": {"user_id": "ZZ9999"}}', tmp_path)
+    assert second is None
+    assert fixed_path.read_text() == '{"data": {"user_id": "AB1234"}}'
+
+
 def test_capture_path_none_for_uncaptured_tool(tmp_path):
     assert capture_path("mcp__kite_gateway__get_positions", {}, tmp_path) is None
     assert capture_path("Write", {}, tmp_path) is None

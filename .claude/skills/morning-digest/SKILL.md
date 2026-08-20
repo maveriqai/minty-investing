@@ -2,8 +2,8 @@
 name: morning-digest
 description: Use when the user asks for today's portfolio/market digest or brief — e.g. "give me the morning digest", "what happened overnight", "how's my portfolio today". A scheduled OS reminder may prompt the user to ask for this each morning (see docs/vision.md §2), but there is no separate unattended pipeline — every digest is this same interactive skill, run on demand. Not for a deep portfolio review (use portfolio-health-check) or single-stock thesis work — this is a short, repeatable daily snapshot, not an analysis session.
 expected_outputs:
-  - "workspaces/{workspace}/results/digest_{date}.json"
-  - "workspaces/{workspace}/results/digest_{date}.md"
+  - "{workspace}/results/digest_{date}.json"
+  - "{workspace}/results/digest_{date}.md"
 tool_call_budgets:
   # Audit-only per-turn count (engine/tool_budget.py) — not enforced, just
   # flagged to the engine's own console if exceeded. Set a bit above step
@@ -47,7 +47,7 @@ stages:
       news, and composing the brief are separate stages, not part of this
       one.
     produces:
-      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "{workspace}/results/digest_{date}.json"
   - id: surveillance
     instructions: |
       This is Stage 2 (Surveillance) of this run — step 7 in the Steps
@@ -56,7 +56,7 @@ stages:
       need the portfolio/market stage's output. Stop once this stage's
       step is done.
     produces:
-      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
+      - "{workspace}/results/surveillance_flags_{date}.json"
   - id: news_and_materiality
     instructions: |
       This is Stage 3 (News & materiality) of this run — steps 8-8b in the
@@ -66,9 +66,9 @@ stages:
       never also by company name), then call run_materiality_check. Stop
       once this stage's steps are done.
     needs:
-      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "{workspace}/results/digest_{date}.json"
     produces:
-      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
+      - "{workspace}/results/materiality_flags_{date}.json"
   - id: compose
     instructions: |
       This is Stage 4 (Compose & save) of this run — steps 9 and 12 in the
@@ -79,9 +79,9 @@ stages:
       means that stage failed — say so explicitly in the relevant section
       instead of omitting it or guessing at its contents.
     needs:
-      - "workspaces/{workspace}/results/digest_{date}.json"
-      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
-      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
+      - "{workspace}/results/digest_{date}.json"
+      - "{workspace}/results/surveillance_flags_{date}.json"
+      - "{workspace}/results/materiality_flags_{date}.json"
 ---
 
 # Morning Digest
@@ -119,11 +119,10 @@ exist).
 
 ## Stage 1: Portfolio & market data
 
-1. **Confirm a workspace.** This skill writes into the current workspace's
-   `data/` and `results/`. If no workspace is open, ask the user to open or
-   name one first (a workspace named after a recurring daily habit, e.g.
-   `daily`, works fine — nothing about this skill requires a
-   symbol/topic-specific name).
+1. **The workspace is already open.** The engine hands you the one active
+   workspace's path before you ever see this turn (the "Active workspace:"
+   note above) — there's no naming step, and no case where none is open.
+   Write into its `data/` and `results/` as documented below.
 
 2. **Check market status.** Call `india_price.get_market_status`. If it's a
    weekend/holiday or pre-open, frame the brief around the last completed
@@ -133,18 +132,26 @@ exist).
    result; if it's `False` the lookup degraded to a weekday-only check, so
    also sanity-check against the index quote in step 3.)
 
-3. **Verify account identity, then fetch real holdings from Kite.** Call
-   `kite_gateway.get_profile` and compare its `user_id` against the anchor
-   in **root** `notes.md` (not the workspace's own `notes.md` — this is a
-   durable, cross-workspace fact, not a workspace-scoped one, per
-   docs/vision.md's Working Notes convention) → "Zerodha account identity".
-   No anchor yet? Save this profile's identity as the anchor and proceed.
-   Anchor exists and doesn't match? **Stop** — don't fetch or overwrite the
-   workspace's `data/holdings_<date>.json`; report plainly that a different
-   Zerodha account is connected than expected. Minty is a single-account
-   tool by design, not multi-tenant — a second account's data would
-   silently corrupt the cached snapshot rather than raise an error. Then
-   call `kite_gateway.get_holdings` — read-only by construction, not just
+3. **Verify account identity, then fetch real holdings from Kite.** Read
+   `data/account_identity.json` at the **repo root** first, if it exists
+   (not inside the workspace — this is an install-wide anchor, not
+   workspace content). Then call `kite_gateway.get_profile` and compare
+   its `user_id` against whatever you just read.
+   - **No anchor file yet:** the engine writes one automatically, the
+     moment this call succeeds — nothing for you to do. Just proceed.
+   - **Anchor existed and matches:** proceed.
+   - **Anchor existed and doesn't match:** **Stop** — don't fetch or
+     overwrite the workspace's `data/holdings_<date>.json`; report plainly
+     that a different Zerodha account is connected than expected. Minty is
+     a single-account tool by design, not multi-tenant — a second
+     account's data would silently corrupt the cached snapshot rather than
+     raise an error. There's no tool call that can update the anchor —
+     it's engine-managed and write-once (see `engine/tool_capture.py`) —
+     so this stays flagged on every run until a human resolves it by hand
+     (deleting `data/account_identity.json`), not something you can fix
+     from inside a conversation.
+
+   Then call `kite_gateway.get_holdings` — read-only by construction, not just
    policy: the order-placing/-modifying tools (`place_order`,
    `modify_order`, `cancel_order`, GTT tools) aren't in `kite_gateway`'s
    tool surface at all (see docs/vision.md §5). The engine automatically
@@ -282,7 +289,7 @@ exist).
 
 9. **Compose the brief** (this is the actual output, not a report about the
    output) — target ≤2 minutes to read, per the user's own stated
-   preference in root `notes.md`. Structure:
+   preference in `notes.md`'s `## Preferences` section. Structure:
    - Index snapshot (NIFTY/SENSEX/BANKNIFTY/VIX, day change).
    - Portfolio today: total day P&L (₹ and %), then top 2-3 ₹ contributors
      and detractors — not a full position-by-position readout. If step 3

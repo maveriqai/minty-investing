@@ -2,7 +2,7 @@
 name: red-flag-scan
 description: Use when the user wants a governance/safety-focused check on one specific held or watchlist stock — e.g. "any red flags on STOCKA", "check XYZ for governance issues before I add", "should I be worried about this holding". Not for a portfolio-wide check (use portfolio-health-check).
 expected_outputs:
-  - "workspaces/{workspace}/results/red_flags_*_{date}.json"
+  - "{workspace}/results/red_flags_*_{date}.json"
 deterministic_scripts:
   - id: red_flag_check
     path: scripts/red_flag_check.py
@@ -27,9 +27,10 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
 
 ## Steps
 
-1. **Confirm a workspace.** Reads/writes the current workspace's `data/`,
-   `results/`, `notes.md`. If none is open, ask which one, or offer to open
-   one for this symbol.
+1. **The workspace is already open.** The engine hands you the one active
+   workspace's path before you ever see this turn (the "Active workspace:"
+   note above) — there's no naming step, and no case where none is open.
+   Read/write its `data/`, `results/`, `notes.md` as documented below.
 
 2. **Resolve the symbol.** `india_price.resolve_symbol` if the user gave a
    company name rather than an exact NSE trading symbol.

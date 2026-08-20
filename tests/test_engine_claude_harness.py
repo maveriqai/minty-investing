@@ -25,8 +25,8 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
     options = cas._build_options(tools)
 
     # workspace_notes is always added (unlike skill_scripts, which is
-    # conditional) — see cas._build_options — so the guardrail's own denied
-    # server list must include it too.
+    # conditional) — see cas._build_options — so the guardrail's own
+    # denied server list must include it too.
     expected = tools.guardrail.denied_tool_names([*FAKE_MCP_SERVERS.keys(), "workspace_notes"])
     assert set(options.disallowed_tools) == expected
     assert len(expected) == 3 * len(ORDER_TOOL_NAMES)
@@ -411,44 +411,56 @@ class _FakeHarness:
         return self.to_return
 
 
-def test_main_prints_result_text_and_returns_zero_on_success():
+def test_main_prints_result_text_and_returns_zero_on_success(tmp_path, monkeypatch):
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "workspace")
     fake = _FakeHarness(to_return=EngineResult(ok=True, text="all good", error_kind=None, raw=None))
     exit_code = asyncio.run(run._main("what's the RELIANCE quote?", harness=fake))
     assert exit_code == 0
-    assert fake.last_prompt == "what's the RELIANCE quote?"
+    assert "what's the RELIANCE quote?" in fake.last_prompt
 
 
-def test_main_returns_one_on_harness_failure():
+def test_main_returns_one_on_harness_failure(tmp_path, monkeypatch):
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "workspace")
     fake = _FakeHarness(to_return=EngineResult(ok=False, text=None, error_kind="other", raw=None))
     exit_code = asyncio.run(run._main("anything", harness=fake))
     assert exit_code == 1
 
 
-def test_main_resolves_and_threads_a_named_workspace(tmp_path, monkeypatch):
+def test_main_always_resolves_and_threads_the_active_workspace(tmp_path, monkeypatch):
     # docs/vision.md §5's grounding rule only actually applies when
-    # workspace_root reaches Harness.run() -- this proves --workspace
-    # resolves a real directory (creating it if needed, same as
-    # engine/interactive.py's /workspace command) and both augments the
+    # workspace_root reaches Harness.run() -- this proves engine.run always
+    # resolves the one fixed workspace (creating it if needed, same as
+    # engine/interactive.py's own startup resolution) and both augments the
     # prompt (so the model isn't left guessing the path from prose) and
-    # passes workspace_root through, rather than silently staying None.
+    # passes workspace_root through -- no opt-in flag, and no case where it
+    # silently stays None (docs/next-phase-plan.md §4).
     import engine.workspace as workspace_module
 
-    monkeypatch.setattr(workspace_module, "WORKSPACES_ROOT", tmp_path)
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "workspace")
+    monkeypatch.delenv("MINTY_WORKSPACE", raising=False)
     fake = _FakeHarness(to_return=EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    exit_code = asyncio.run(run._main("how's my portfolio?", harness=fake, workspace_name="daily"))
+    exit_code = asyncio.run(run._main("how's my portfolio?", harness=fake))
 
     assert exit_code == 0
-    assert fake.last_workspace_root == tmp_path / "daily"
-    assert str(tmp_path / "daily") in fake.last_prompt
+    assert fake.last_workspace_root == tmp_path / "workspace"
+    assert str(tmp_path / "workspace") in fake.last_prompt
     assert "how's my portfolio?" in fake.last_prompt
-    assert (tmp_path / "daily" / "data").is_dir()
+    assert (tmp_path / "workspace" / "data").is_dir()
 
 
-def test_main_leaves_workspace_root_none_and_prompt_unaugmented_without_a_name():
+def test_main_honors_minty_workspace_env_override(tmp_path, monkeypatch):
+    import engine.workspace as workspace_module
+
+    monkeypatch.setattr(workspace_module, "WORKSPACE_ROOT", tmp_path / "workspace")
+    monkeypatch.setattr(workspace_module, "DEV_WORKSPACES_ROOT", tmp_path / ".dev-workspaces")
+    monkeypatch.setenv("MINTY_WORKSPACE", "test-scratch")
     fake = _FakeHarness(to_return=EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
     asyncio.run(run._main("what's the RELIANCE quote?", harness=fake))
 
-    assert fake.last_workspace_root is None
-    assert fake.last_prompt == "what's the RELIANCE quote?"
+    assert fake.last_workspace_root == tmp_path / ".dev-workspaces" / "test-scratch"
