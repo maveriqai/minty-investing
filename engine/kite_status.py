@@ -57,10 +57,25 @@ def _newest_holdings_date(workspace_root: Path) -> date | None:
 
 def _account_user_id() -> str | None:
     """None if the file is missing, corrupt, or doesn't have the expected
-    shape — treated the same as "no identity yet", not an error."""
+    shape — treated the same as "no identity yet", not an error.
+
+    `envelope["data"]` isn't reliably a flat dict: it's `structuredContent`
+    when Kite's upstream response populates that field, but falls back to
+    a raw list of MCP content blocks when it doesn't (see
+    `mcp/kite_gateway/server.py`'s `call_tool`) — live-observed 2026-08-20
+    against a real `get_profile` call to take the list-of-blocks shape, not
+    the flat dict this originally assumed, which left every real "already
+    connected" user stuck on the "not connected" line (see issue #5/#7).
+    Handles both."""
     try:
         envelope = json.loads(ACCOUNT_IDENTITY_FILE.read_text())
-        return str(envelope["data"]["user_id"])
+        data = envelope["data"]
+        if isinstance(data, list):
+            text = next((block.get("text") for block in data if block.get("type") == "text"), None)
+            if text is None:
+                return None
+            data = json.loads(text)
+        return str(data["user_id"])
     except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError):
         return None
 
