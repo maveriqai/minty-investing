@@ -173,6 +173,9 @@ Three steps, in order, from a fresh install to your first real result.
   concentrated in anything" — total P&L, concentration, winners/losers.
 - **red-flag-scan** — "any red flags on RELIANCE" — governance/safety
   checklist on one held or watchlist name.
+- **thesis-tracker** — "track a thesis on RELIANCE," "is my thesis on X
+  still intact" — pillars, risks, catalysts, and conviction for one held
+  or watchlist name, tracked as a living scorecard across sessions.
 
 Every output is grounded in real tool calls (never model memory), ends
 with a Sources footer, and carries the SEBI disclaimer. Minty is

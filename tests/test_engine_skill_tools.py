@@ -168,6 +168,37 @@ def test_run_health_check_handler_invokes_the_real_script_and_writes_expected_ou
     assert saved["total_pnl"] == 5000.0
 
 
+def test_run_thesis_math_handler_invokes_the_real_script_and_writes_expected_output(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "test-scan"
+    (workspace / "data").mkdir(parents=True)
+    (workspace / "results").mkdir()
+
+    tools = build_skill_tools(["thesis-tracker"])
+    run_tool = next(t for t in tools if t.name == "run_thesis_math")
+
+    result = asyncio.run(
+        run_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "symbol": "reliance",
+                "entry_price": "2000.0",
+                "entry_date": "2026-07-08",
+                "current_price": "2500.0",
+                "as_of": "2026-08-20",
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    written = workspace / "results" / "thesis_RELIANCE_2026-08-20.json"
+    assert written.is_file()
+    saved = json.loads(written.read_text())
+    assert saved["symbol"] == "RELIANCE"
+    assert saved["move_pct"] == 25.0
+    assert saved["days_elapsed"] == 43
+
+
 def test_handler_reports_missing_required_arg_without_running_anything(tmp_path, monkeypatch):
     _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"

@@ -393,7 +393,7 @@ def test_build_tool_config_scopes_skills_to_minty_only():
     # Explicit list, not "all" — "all" also surfaces unrelated global/
     # user-level skills installed on the host machine.
     tools = config.build_tool_config()
-    assert tools.skills == ["morning-digest", "portfolio-health-check", "red-flag-scan"]
+    assert tools.skills == ["morning-digest", "portfolio-health-check", "red-flag-scan", "thesis-tracker"]
 
 
 @dataclass

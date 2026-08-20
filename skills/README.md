@@ -19,13 +19,15 @@ machinery, one canonical copy, just not at this path.
   winners-losers.
 - `red-flag-scan/` — governance/safety checklist on one held or watchlist
   stock.
+- `thesis-tracker/` — define/update/review an investment thesis for a
+  held or watchlist name, tracked per symbol in
+  `workspace/theses/<SYMBOL>.md`.
 
-**Not yet ported** (see `docs/skills.md`): `screen-indian-stocks` and
-`thesis-tracker` are scoped "later," not dropped. `refresh-holdings` was
-dropped outright — it existed to work around headless Kite OAuth in the
-old unattended pipeline, which this project doesn't have (see
-`docs/vision.md` §2/§3).
+**Not yet ported** (see `docs/skills.md`): `screen-indian-stocks` is
+scoped "later," not dropped. `refresh-holdings` was dropped outright — it
+existed to work around headless Kite OAuth in the old unattended
+pipeline, which this project doesn't have (see `docs/vision.md` §2/§3).
 
 See `THIRD-PARTY-NOTICES.md` for attribution on any skill adapted from
-another source — none of the three currently ported are; all three were
-built Minty-native.
+another source — `thesis-tracker` is; the other three were built
+Minty-native.

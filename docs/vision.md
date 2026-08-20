@@ -46,8 +46,8 @@ to day, not just sounds good on paper.
 - Core research capabilities available conversationally, on demand (see
   `docs/skills.md` for detail):
   - **v1 must-haves:** morning-digest, portfolio-health-check,
-    red-flag-scan
-  - **later:** screen-indian-stocks, thesis-tracker
+    red-flag-scan, thesis-tracker
+  - **later:** screen-indian-stocks
   - **dropped:** refresh-holdings — superseded by the manual-trigger
     decision below; an interactive session can always complete Kite's
     login itself, so there's no headless-OAuth gap left to work around.
