@@ -199,6 +199,77 @@ def test_run_thesis_math_handler_invokes_the_real_script_and_writes_expected_out
     assert saved["days_elapsed"] == 43
 
 
+def test_run_list_candidates_handler_invokes_the_real_script_and_writes_expected_output(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "test-scan"
+    (workspace / "data").mkdir(parents=True)
+    (workspace / "results").mkdir()
+
+    tools = build_skill_tools(["screen-indian-stocks"])
+    run_tool = next(t for t in tools if t.name == "run_list_candidates")
+
+    result = asyncio.run(
+        run_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "industry": "Automobile and Auto Components",
+                "limit": "3",
+                "as_of": "2026-08-20",
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    written = workspace / "data" / "candidates_automobile-and-auto-components_2026-08-20.json"
+    assert written.is_file()
+    saved = json.loads(written.read_text())
+    assert saved["industry"] == "Automobile and Auto Components"
+    assert saved["candidate_count"] == 3
+
+
+def test_run_screen_rank_handler_invokes_the_real_script_and_writes_expected_output(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "test-scan"
+    (workspace / "data").mkdir(parents=True)
+    (workspace / "results").mkdir()
+    candidates = {
+        "industry": "Automobile and Auto Components",
+        "as_of": "2026-08-20",
+        "candidate_count": 1,
+        "candidates": [{"symbol": "APOLLOTYRE", "name": "APOLLO TYRES"}],
+    }
+    (workspace / "data" / "candidates_automobile-and-auto-components_2026-08-20.json").write_text(
+        json.dumps(candidates)
+    )
+    fundamentals = {
+        "source": "india_price",
+        "as_of": "2026-08-20",
+        "data": {"trailing_pe": 18.5, "return_on_equity_pct": 12.3, "debt_to_equity": 45.0},
+    }
+    (workspace / "data" / "fundamentals_APOLLOTYRE_2026-08-20.json").write_text(json.dumps(fundamentals))
+
+    tools = build_skill_tools(["screen-indian-stocks"])
+    run_tool = next(t for t in tools if t.name == "run_screen_rank")
+
+    result = asyncio.run(
+        run_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "industry": "Automobile and Auto Components",
+                "candidates": "data/candidates_automobile-and-auto-components_2026-08-20.json",
+                "as_of": "2026-08-20",
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    written = workspace / "results" / "screen_automobile-and-auto-components_2026-08-20.json"
+    assert written.is_file()
+    saved = json.loads(written.read_text())
+    assert saved["ranked_count"] == 1
+    assert saved["ranked"][0]["symbol"] == "APOLLOTYRE"
+
+
 def test_handler_reports_missing_required_arg_without_running_anything(tmp_path, monkeypatch):
     _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "test-scan"

@@ -176,6 +176,9 @@ Three steps, in order, from a fresh install to your first real result.
 - **thesis-tracker** — "track a thesis on RELIANCE," "is my thesis on X
   still intact" — pillars, risks, catalysts, and conviction for one held
   or watchlist name, tracked as a living scorecard across sessions.
+- **screen-indian-stocks** — "find undervalued auto sector stocks,"
+  "screen IT services for quality names" — sector/theme candidate
+  discovery ranked on valuation/quality, Nifty 500 coverage only.
 
 Every output is grounded in real tool calls (never model memory), ends
 with a Sources footer, and carries the SEBI disclaimer. Minty is

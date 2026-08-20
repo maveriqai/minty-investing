@@ -38,12 +38,7 @@ from the vision doc so it stays scannable as skills are added later.
 | portfolio-health-check | Portfolio-wide concentration/winners-losers | Full holdings | Structured review | |
 | red-flag-scan | Governance check on one held/watchlist name | One symbol | Flag list w/ severity | |
 | thesis-tracker | Define/update/review a thesis on one name | Symbol + user-stated thesis | Per-symbol scorecard, `workspace/theses/<SYMBOL>.md` | Adapted from anthropics/financial-services-plugins via LangAlpha — see `skills/THIRD-PARTY-NOTICES.md` |
-
-## Later
-
-| Skill | Trigger | Input | Output | Notes |
-|---|---|---|---|---|
-| screen-indian-stocks | Candidate ideas from a sector/theme | Sector/theme | Ranked candidate list | Needs broader sector coverage than currently available |
+| screen-indian-stocks | Candidate ideas from a sector/theme | Sector/theme | Ranked candidate list, `workspace/results/screen_<industry>_<date>.json` | Nifty 500 coverage only |
 
 ## Dropped
 

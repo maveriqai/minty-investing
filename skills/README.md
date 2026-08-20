@@ -22,12 +22,13 @@ machinery, one canonical copy, just not at this path.
 - `thesis-tracker/` — define/update/review an investment thesis for a
   held or watchlist name, tracked per symbol in
   `workspace/theses/<SYMBOL>.md`.
+- `screen-indian-stocks/` — sector/theme-based candidate discovery over
+  the local instruments master (Nifty 500 coverage only).
 
-**Not yet ported** (see `docs/skills.md`): `screen-indian-stocks` is
-scoped "later," not dropped. `refresh-holdings` was dropped outright — it
-existed to work around headless Kite OAuth in the old unattended
-pipeline, which this project doesn't have (see `docs/vision.md` §2/§3).
+`refresh-holdings` was dropped outright, not ported — it existed to work
+around headless Kite OAuth in the old unattended pipeline, which this
+project doesn't have (see `docs/vision.md` §2/§3).
 
 See `THIRD-PARTY-NOTICES.md` for attribution on any skill adapted from
-another source — `thesis-tracker` is; the other three were built
+another source — `thesis-tracker` is; the other four were built
 Minty-native.
