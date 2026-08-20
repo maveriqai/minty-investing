@@ -8,7 +8,9 @@ use it. See [`docs/vision.md`](docs/vision.md) for the full scope and
 
 **Status:** this file describes the intended install/first-run experience
 for review. Everything below is built and live-verified, including a full
-fresh-clone-to-first-digest run — see "Known gaps" at the end for the
+fresh-clone-to-first-digest run, with one exception: Onboarding step 2's
+"already connected" message has been built and unit-tested but not yet
+run against a real Kite session — see "Known gaps" at the end for the
 remaining rough edges (none block a normal first run).
 
 ## Prerequisites
@@ -90,7 +92,7 @@ uv tool install --editable .
 *editable* install, so the global `minty` command is really just a
 pointer back at the exact repo you ran that command from. Run `minty`
 from `/tmp`, your Desktop, wherever: it still reads/writes *this* repo's
-`workspaces/`, `.mcp.json`, and `.claude/skills/`. Verified live, including
+`workspace/`, `.mcp.json`, and `.claude/skills/`. Verified live, including
 running it from a directory with no relation to the repo at all.
 
 **One install = one vault.** There's no per-directory project discovery
@@ -114,28 +116,43 @@ Three steps, in order, from a fresh install to your first real result.
    ```bash
    minty
    ```
-   Minty checks your Claude login itself before printing anything else.
-   Already logged in (the common case)? You'll see `Minty — connected.`
-   immediately. Not logged in? Minty runs `claude auth login` for you and
-   waits — you still complete the real sign-in in your own browser, this
-   just saves you the extra step of running it yourself, and there's no
-   lingering `claude` chat session to get stuck in afterwards. If login
-   still doesn't take, Minty exits with `Couldn't sign in to Claude — run
-   'claude auth login' and try again.` — run that yourself, then rerun
-   `minty`.
+   Run this from wherever you like — the repo folder Quickstart just left
+   you in, or any other directory on your machine. Location genuinely
+   doesn't matter (see "How the `minty` command finds your data" above).
 
-2. **Connect Kite.** Set a workspace, then ask for your holdings:
+   Minty checks your Claude login itself before printing anything else.
+   Already logged in (the common case)? You'll see `Claude account
+   already connected.` followed by `Minty — connected.` Not logged in?
+   Minty runs `claude auth login` for you and waits — you still complete
+   the real sign-in in your own browser, this just saves you the extra
+   step of running it yourself, and there's no lingering `claude` chat
+   session to get stuck in afterwards. If login still doesn't take,
+   Minty exits with `Couldn't sign in to Claude — run 'claude auth
+   login' and try again.` — run that yourself, then rerun `minty`.
+
+2. **Connect your Zerodha account.** Minty checks this automatically too,
+   the moment it starts — right after the Claude confirmation you'll see
+   one of two lines:
    ```
-   you> /workspace daily
+   Holdings for account AB1234 found — last refreshed 2 days ago.
+   ```
+   (already connected — nothing to do), or:
+   ```
+   Zerodha not connected yet — ask something like "what are my holdings"
+   anytime to connect, or skip for now and you'll be prompted when you
+   need it.
+   ```
+   If you see the second line, connect the same way Claude's login in
+   step 1 worked — ask for anything that needs live account data and
+   Minty prompts you:
+   ```
    you> what are my holdings
    ```
    Minty replies with a one-time Kite login link. Click it, log in in
    your own browser (Minty never sees your Zerodha credentials), then
-   tell Minty you're done — it picks up from there. Verified end to end,
-   including from a genuinely fresh clone with no prior session.
-   `/workspace daily` only needs to be set once per session — creates
-   `workspaces/daily/` automatically, and everything you do lands there
-   for next time.
+   tell Minty you're done — it picks up from there. Once connected, this
+   persists across sessions until Kite's own daily re-login requirement
+   kicks in — you won't repeat this every conversation.
 
 3. **Run your first skill.**
    ```
@@ -143,7 +160,10 @@ Three steps, in order, from a fresh install to your first real result.
    ```
    or `how's my portfolio doing` / `any red flags on RELIANCE`. That's
    the whole loop from here — ask in plain language, get back a grounded,
-   sourced answer.
+   sourced answer. Everything you do compounds automatically from here —
+   what Minty finds, and anything durable you tell it, carries into your
+   next conversation with no setup on your part. It all stays on your
+   machine, in this repo, never uploaded anywhere.
 
 ## Available skills
 
@@ -193,7 +213,6 @@ For a single prompt with no ongoing conversation:
 
 ```
 uv run python -m engine.run "<prompt>"
-uv run python -m engine.run --workspace daily "<prompt>"
 ```
 
 ## Upgrading
@@ -231,3 +250,11 @@ point changes (rare) — not for routine updates.
   for real, for the same no-Windows-machine reason.
 - No CI, no CONTRIBUTING doc yet — contributor-facing surface
   (`docs/vision.md` §7 Track 2) hasn't started.
+- **Onboarding step 2's "already connected" message isn't live-verified
+  yet.** Only the "not connected" branch has actually been exercised
+  against a real run — the "Holdings for account ... found" branch,
+  including whether the `user_id` extraction from Kite's real
+  `get_profile` response is even correct, has only been unit-tested
+  against mocked data so far (tracked as
+  [#5](https://github.com/EternalTuring/minty-core/issues/5) and
+  [#7](https://github.com/EternalTuring/minty-core/issues/7)).
