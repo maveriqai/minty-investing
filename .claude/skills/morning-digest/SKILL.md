@@ -1,6 +1,6 @@
 ---
 name: morning-digest
-description: Use when the user asks for today's portfolio/market digest or brief — e.g. "give me the morning digest", "what happened overnight", "how's my portfolio today". A scheduled OS reminder may prompt the user to ask for this each morning (see docs/vision.md §2), but there is no separate unattended pipeline — every digest is this same interactive skill, run on demand. Not for a deep portfolio review (use portfolio-health-check) or single-stock thesis work — this is a short, repeatable daily snapshot, not an analysis session.
+description: Use when the user asks for today's portfolio/market digest or brief — e.g. "give me the morning digest", "what happened overnight", "what's moved in my portfolio today". A scheduled OS reminder may prompt the user to ask for this each morning (see docs/vision.md §2), but there is no separate unattended pipeline — every digest is this same interactive skill, run on demand. Not for a general portfolio-status check or single-stock thesis work — phrases like "how's my portfolio doing" or "am I too concentrated in anything" belong to portfolio-health-check, not here. This is a short, repeatable daily market-moved snapshot, not a structured P&L/concentration/winners-losers review.
 expected_outputs:
   - "{workspace}/results/digest_{date}.json"
   - "{workspace}/results/digest_{date}.md"

@@ -1,6 +1,6 @@
 ---
 name: portfolio-health-check
-description: Use when the user asks for a portfolio-wide health check, concentration review, or overall winners/losers across their real brokerage holdings — e.g. "how's my portfolio doing", "am I too concentrated in anything", "what are my biggest winners/losers". Not for single-stock research (no portfolio context needed) or order placement (out of scope by policy).
+description: Use when the user asks for a portfolio-wide health check, concentration review, or overall winners/losers across their real brokerage holdings — e.g. "how's my portfolio doing", "am I too concentrated in anything", "what are my biggest winners/losers". Not for single-stock research (no portfolio context needed), order placement (out of scope by policy), or a market-moved daily recap — phrases like "what happened overnight" or "give me the morning digest" belong to morning-digest, not here.
 expected_outputs:
   - "{workspace}/results/health_check_{date}.json"
 deterministic_scripts:
