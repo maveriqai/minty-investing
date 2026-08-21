@@ -237,6 +237,58 @@ def test_send_records_budgeted_tool_calls_and_reports_when_over_budget():
     assert "2 times" in session.last_over_budget[0]
 
 
+def test_send_yields_staged_tool_result_verbatim_and_suppresses_later_model_text(tmp_path):
+    """A run_staged_<skill> call's own returned text already is the finished,
+    fully-composed result (built by engine/staged_skills.py's
+    compose_and_save from every stage's own tool calls, none of which this
+    session ever saw). The model's own subsequent paraphrase — and this
+    session's own captures-based footer, which would only ever cite
+    whatever this outer turn itself called directly — must not appear
+    (issue #15)."""
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__staged_workflows__run_staged_morning_digest", input={}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content="Digest body\n\n---\n**Sources**\n- everything cited\n")
+        ]),
+        AssistantMessage(content=[TextBlock(text="Here's your digest, missing the real footer")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "give me the morning digest", workspace_root=tmp_path)
+
+    assert chunks == ["Digest body\n\n---\n**Sources**\n- everything cited\n"]
+
+
+def test_send_skips_its_own_footer_when_a_staged_tool_was_called(tmp_path):
+    """Even if this outer turn also made a real, capturable call of its own
+    before the staged call, the session's own footer must not fire once a
+    staged result is present — it would only cite that one call, not the
+    full multi-stage picture the staged tool's own text already carries."""
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t0", name="mcp__kite_gateway__get_holdings", input={}),
+        ]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t0", content="[]")]),
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__staged_workflows__run_staged_morning_digest", input={}),
+        ]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="Digest body with its own footer")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "give me the morning digest", workspace_root=tmp_path)
+
+    assert chunks == ["Digest body with its own footer"]
+    assert "**Sources**" not in "".join(chunks)
+    assert session.last_captures == [
+        ("kite_gateway", "get_holdings", tmp_path / "data" / f"holdings_{_TODAY}.json")
+    ]
+
+
 def test_send_ignores_non_mcp_tool_calls(tmp_path):
     messages = [
         AssistantMessage(content=[ToolUseBlock(id="t1", name="Write", input={"file_path": "x", "content": "y"})]),

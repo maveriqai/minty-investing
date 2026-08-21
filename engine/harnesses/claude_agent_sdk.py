@@ -310,39 +310,64 @@ class ClaudeSession:
         blocks a call; `last_over_budget` after the turn just lists which
         budgeted tools, if any, ran over — an audit signal, not
         enforcement (see engine/tool_budget.py's docstring for why).
+
+        A `run_staged_<skill>` call (see engine/staged_skill_tools.py) gets
+        special handling: its own returned text already *is* the finished,
+        fully-composed result — `engine/staged_skills.py`'s
+        `compose_and_save` built it from every tool call across all four
+        stage sessions, none of which this session ever saw directly. Once
+        that result lands, this method stops yielding the model's own
+        subsequent text (its paraphrase of that same result, minus the
+        footer — models don't reliably echo trailing boilerplate) and
+        yields the staged tool's own text instead, skipping this session's
+        own `captures`-based footer entirely. That footer would otherwise
+        still fire (this session's `captures` is never empty — it always
+        has at least morning-digest's own step-0 `get_profile` call) and
+        silently overwrite a correct, multi-source footer with one citing
+        only the one call this particular session happened to make itself
+        — found live 2026-08-20, see issue #15.
         """
         self._budget_tracker.reset()
         await self._client.query(prompt)
         pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
         captures: list[tuple[str, str, Path]] = []
+        staged_output: str | None = None
         async for message in self._client.receive_response():
             kind = type(message).__name__
             if kind == "AssistantMessage":
                 for block in message.content:
                     block_kind = type(block).__name__
                     if block_kind == "TextBlock":
-                        yield block.text
+                        if staged_output is None:
+                            yield block.text
                     elif block_kind == "ToolUseBlock":
                         pending_tool_calls[block.id] = (block.name, block.input)
                         self._budget_tracker.record(block.name)
             elif kind == "UserMessage":
-                if workspace_root is not None:
-                    for block in getattr(message, "content", None) or []:
-                        if type(block).__name__ != "ToolResultBlock" or block.is_error:
-                            continue
-                        call = pending_tool_calls.get(block.tool_use_id)
-                        if call is None:
-                            continue
-                        tool_name, tool_input = call
+                for block in getattr(message, "content", None) or []:
+                    if type(block).__name__ != "ToolResultBlock" or block.is_error:
+                        continue
+                    call = pending_tool_calls.get(block.tool_use_id)
+                    if call is None:
+                        continue
+                    tool_name, tool_input = call
+                    parsed = parse_mcp_tool_name(tool_name)
+                    if parsed is not None and parsed[0] == STAGED_WORKFLOWS_SERVER_NAME:
                         text = _tool_result_text(block.content)
-                        if text is None:
-                            continue
-                        saved_path = save_tool_result(tool_name, tool_input, text, workspace_root)
-                        if saved_path is None:
-                            continue
-                        parsed = parse_mcp_tool_name(tool_name)
-                        if parsed is not None:
-                            captures.append((parsed[0], parsed[1], saved_path))
+                        if text is not None:
+                            staged_output = text
+                            yield text
+                        continue
+                    if workspace_root is None:
+                        continue
+                    text = _tool_result_text(block.content)
+                    if text is None:
+                        continue
+                    saved_path = save_tool_result(tool_name, tool_input, text, workspace_root)
+                    if saved_path is None:
+                        continue
+                    if parsed is not None:
+                        captures.append((parsed[0], parsed[1], saved_path))
             elif kind == "ResultMessage":
                 if message.subtype == "success":
                     self.last_result = EngineResult(
@@ -355,7 +380,7 @@ class ClaudeSession:
 
         self.last_captures = captures
         self.last_over_budget = self._budget_tracker.over_budget()
-        if workspace_root is not None and captures:
+        if staged_output is None and workspace_root is not None and captures:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
                 yield footer

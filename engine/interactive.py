@@ -107,11 +107,20 @@ def _save_composed_outputs(
     A no-op, not an error, when `full_text` is blank (a turn with no
     reply text has nothing worth archiving) or no skill's non-`.md`
     pattern matched (an ordinary chat turn, or a skill with no `.md`
-    deliverable declared at all).
+    deliverable declared at all). Also a no-op for any skill that
+    declares `stages` — its own `run_staged_<skill>` tool handler
+    (engine/staged_skills.py's `compose_and_save`) already writes this
+    same `.md` pattern itself, from every stage's actual tool calls, not
+    just this outer turn's own. This function's `full_text` is only the
+    outer turn's own reply, which for a staged skill has no visibility
+    into what the stages did — writing it here would silently clobber
+    the correct file with a worse one (found live 2026-08-20, issue #15).
     """
     if not full_text.strip():
         return
     for name in skill_names:
+        if skills.load_stages(name):
+            continue
         md_patterns = skills.composed_output_patterns(name)
         if not md_patterns:
             continue
