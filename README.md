@@ -296,11 +296,3 @@ point changes (rare) — not for routine updates.
   for real, for the same no-Windows-machine reason.
 - No CI, no CONTRIBUTING doc yet — contributor-facing surface
   (`docs/vision.md` §7 Track 2) hasn't started.
-- **Onboarding step 2's "already connected" message isn't live-verified
-  yet.** Only the "not connected" branch has actually been exercised
-  against a real run — the "Holdings for account ... found" branch,
-  including whether the `user_id` extraction from Kite's real
-  `get_profile` response is even correct, has only been unit-tested
-  against mocked data so far (tracked as
-  [#5](https://github.com/EternalTuring/minty-core/issues/5) and
-  [#7](https://github.com/EternalTuring/minty-core/issues/7)).
