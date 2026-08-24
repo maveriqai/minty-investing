@@ -31,6 +31,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -193,7 +196,7 @@ if __name__ == "__main__":
 
     result = compute(digest, news_payloads, announcement_payloads)
     result["source"] = "materiality_check.py over india_news/india_filings.get_announcements + mcp/common/sector_materiality"
-    result["as_of"] = datetime.now().strftime("%Y-%m-%d")
+    result["as_of"] = datetime.now(_IST).strftime("%Y-%m-%d")
     result["input_files"] = [digest_path.name]
 
     out_dir = Path.cwd() / "results"

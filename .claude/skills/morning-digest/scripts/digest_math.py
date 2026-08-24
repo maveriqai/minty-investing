@@ -27,6 +27,9 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def _unwrap_envelope(payload: object) -> object:
@@ -140,7 +143,7 @@ if __name__ == "__main__":
         if quotes
         else "kite.get_holdings"
     )
-    result["as_of"] = datetime.now().strftime("%Y-%m-%d")
+    result["as_of"] = datetime.now(_IST).strftime("%Y-%m-%d")
     result["input_file"] = src.name
 
     out_dir = Path.cwd() / "results"

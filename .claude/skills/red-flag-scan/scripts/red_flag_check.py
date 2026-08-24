@@ -30,6 +30,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 RED_FLAG_KEYWORDS = [
     "auditor resignation",
@@ -252,7 +255,7 @@ if __name__ == "__main__":
     parser.add_argument("--news")
     parser.add_argument("--fundamentals")
     parser.add_argument("--fundamentals-screener")
-    parser.add_argument("--as-of", default=datetime.now().strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
+    parser.add_argument("--as-of", default=datetime.now(_IST).strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
     args = parser.parse_args()
 
     def _load(path: str | None) -> dict | None:

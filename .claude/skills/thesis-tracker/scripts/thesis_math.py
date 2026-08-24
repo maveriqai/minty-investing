@@ -14,6 +14,9 @@ import argparse
 import json
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def compute(entry_price: float, entry_date: str, current_price: float, as_of: str) -> dict:
@@ -37,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument("--entry-price", type=float, required=True)
     parser.add_argument("--entry-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--current-price", type=float, required=True)
-    parser.add_argument("--as-of", default=datetime.now().strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
+    parser.add_argument("--as-of", default=datetime.now(_IST).strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
     args = parser.parse_args()
 
     result = compute(args.entry_price, args.entry_date, args.current_price, args.as_of)
