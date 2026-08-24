@@ -12,6 +12,10 @@
       "command": "uv",
       "args": ["run", "python", "mcp/india_filings/server.py"]
     },
+    "india_screener": {
+      "command": "uv",
+      "args": ["run", "python", "mcp/india_screener/server.py"]
+    },
     "india_macro": {
       "command": "uv",
       "args": ["run", "python", "mcp/india_macro/server.py"]

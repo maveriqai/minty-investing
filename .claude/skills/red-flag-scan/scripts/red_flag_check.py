@@ -1,11 +1,12 @@
 """Deterministic red-flag checklist for one NSE-listed stock.
 
-Combines five already-fetched tool envelopes (shareholding pattern,
-ASM/GSM surveillance lists, announcements, news, fundamentals) into a fixed
-set of checks — never an LLM judgment call, per CLAUDE.md's "deterministic
-calculation only" rule. Every input is optional: a missing/failed upstream
-call skips its checks and is reported under `checks_skipped`, not silently
-ignored or guessed around (the same honest-gap policy as the rest of Minty).
+Combines six already-fetched tool envelopes (shareholding pattern, ASM/GSM
+surveillance lists, announcements, news, yfinance fundamentals, and
+optionally Screener.in fundamentals) into a fixed set of checks — never an
+LLM judgment call, per CLAUDE.md's "deterministic calculation only" rule.
+Every input is optional: a missing/failed upstream call skips its checks
+and is reported under `checks_skipped`, not silently ignored or guessed
+around (the same honest-gap policy as the rest of Minty).
 
 Keyword scanning (announcements/news) flags a *mention*, not a verdict — the
 skill composing the brief should quote the matched text and let the user
@@ -18,7 +19,8 @@ Usage:
     --surveillance-gsm data/surveillance_gsm_2026-07-08.json \\
     --announcements data/announcements_STOCKA_2026-07-08.json \\
     --news data/news_STOCKA_2026-07-08.json \\
-    --fundamentals data/fundamentals_STOCKA_2026-07-08.json
+    --fundamentals data/fundamentals_STOCKA_2026-07-08.json \\
+    --fundamentals-screener data/fundamentals_screener_STOCKA_2026-07-08.json
 """
 
 from __future__ import annotations
@@ -55,6 +57,13 @@ RED_FLAG_KEYWORDS = [
 # real profile). Threshold below is in the same percentage units.
 DEBT_TO_EQUITY_THRESHOLD = 200.0  # i.e. D/E ratio > 2.0x
 CURRENT_RATIO_THRESHOLD = 1.0
+# Last-year ROE below 60% of the 3-year average — a real quality-
+# deterioration signal (not a rounding-level fluctuation), from
+# Screener.in's own multi-year ROE trend (docs/screener-integration-
+# design.md §11 — this is the "real value" from that trend this skill
+# gets). Not sector-adjusted, same caveat as the leverage/liquidity
+# thresholds above.
+ROE_DECLINE_RATIO_THRESHOLD = 0.6
 
 
 def _envelope_data(payload: dict[str, Any] | None) -> Any:
@@ -175,6 +184,28 @@ def _check_fundamentals(fundamentals: dict | None) -> tuple[list[dict], bool]:
     return flags, True
 
 
+def _check_screener_fundamentals(fundamentals_screener: dict | None) -> tuple[list[dict], bool]:
+    data = _envelope_data(fundamentals_screener)
+    if not data:
+        return [], False
+    flags = []
+    last = data.get("roe_last_year_pct")
+    avg3 = data.get("roe_3yr_avg_pct")
+    if last is not None and avg3 is not None and avg3 > 0 and last < avg3 * ROE_DECLINE_RATIO_THRESHOLD:
+        decline_pct = (1 - last / avg3) * 100
+        flags.append(
+            {
+                "category": "roe_deteriorating",
+                "severity": "medium",
+                "evidence": (
+                    f"ROE (Screener.in) fell to {last}% last year vs. a {avg3}% 3-year average "
+                    f"— a {decline_pct:.0f}% decline from trend"
+                ),
+            }
+        )
+    return flags, True
+
+
 def compute(
     symbol: str,
     shareholding: dict | None = None,
@@ -183,6 +214,7 @@ def compute(
     announcements: dict | None = None,
     news: dict | None = None,
     fundamentals: dict | None = None,
+    fundamentals_screener: dict | None = None,
 ) -> dict:
     symbol = symbol.strip().upper()
     flags: list[dict] = []
@@ -196,6 +228,7 @@ def compute(
         "announcement_keywords": _check_announcements(announcements),
         "news_keywords": _check_news(news),
         "fundamentals_thresholds": _check_fundamentals(fundamentals),
+        "screener_roe_trend": _check_screener_fundamentals(fundamentals_screener),
     }.items():
         flags.extend(check_flags)
         (checks_performed if ran else checks_skipped).append(name)
@@ -218,6 +251,7 @@ if __name__ == "__main__":
     parser.add_argument("--announcements")
     parser.add_argument("--news")
     parser.add_argument("--fundamentals")
+    parser.add_argument("--fundamentals-screener")
     parser.add_argument("--as-of", default=datetime.now().strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
     args = parser.parse_args()
 
@@ -232,9 +266,10 @@ if __name__ == "__main__":
         announcements=_load(args.announcements),
         news=_load(args.news),
         fundamentals=_load(args.fundamentals),
+        fundamentals_screener=_load(args.fundamentals_screener),
     )
     result["as_of"] = args.as_of
-    result["source"] = "red_flag_check.py over india_filings/india_news/india_price tool outputs"
+    result["source"] = "red_flag_check.py over india_filings/india_news/india_price/india_screener tool outputs"
 
     out_dir = Path.cwd() / "results"
     out_dir.mkdir(exist_ok=True)

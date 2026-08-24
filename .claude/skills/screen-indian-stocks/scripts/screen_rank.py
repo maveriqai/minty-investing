@@ -2,26 +2,42 @@
 
 Reads a candidate list (list_candidates.py's own output) and, for each
 candidate, looks up that symbol's already-captured
-data/fundamentals_<SYMBOL>_<as-of>.json — engine/tool_capture.py auto-saves
-every india_price.get_fundamentals call under exactly that filename the
-moment it's made, so there's no manual "assemble a batch file" step for
-the model to get right (the failure mode engine/skill_tools.py's own
-docstring documents finding live for hand-typed Bash). A candidate with no
-matching file (never fetched) is excluded with a reason, same as one whose
-fetch came back with an error. Quotes are still passed as a single file
+data/fundamentals_<SYMBOL>_<as-of>.json (india_price, yfinance-backed) and
+data/fundamentals_screener_<SYMBOL>_<as-of>.json (india_screener,
+Screener.in-backed, optional) — engine/tool_capture.py auto-saves both
+tools' calls under exactly these filenames the moment each is made, so
+there's no manual "assemble a batch file" step for the model to get right
+(the failure mode engine/skill_tools.py's own docstring documents finding
+live for hand-typed Bash). A candidate with no matching india_price file
+(never fetched) is excluded with a reason, same as one whose fetch came
+back with an error. Quotes are still passed as a single file
 (india_price.get_quote takes a symbol list, so one batched call already
 captures all candidates together). Ranks in code, never by LLM judgment,
 per docs/vision.md §5's "deterministic calculation only" rule. Writes
 results/screen_<industry-slug>_<date>.json relative to the current working
 directory (the active workspace — set by the run_screen_rank tool).
 
-Ranking: candidates missing trailing_pe or return_on_equity_pct are
-excluded from ranking (not silently dropped — reported under `excluded`
-with a reason) since there's nothing to rank them on. Remaining candidates
-get a composite_rank_score = ascending-PE rank + descending-ROE rank (ties
-broken by symbol) — lower is better. This is a simple, transparent
-heuristic, not a valuation model; it surfaces candidates worth a closer
-look, not a buy list.
+ROE sourcing (fixes #9 — see docs/screener-integration-design.md §1):
+yfinance's return_on_equity_pct comes back null for entire sectors
+(confirmed live: Consumer Cyclical, Energy), which used to zero out this
+skill's entire ranked list for those sectors. When a candidate's
+india_screener fundamentals are available and not an error, its roe_pct is
+preferred for ranking; yfinance's return_on_equity_pct is the fallback when
+Screener data wasn't fetched or came back empty. Both raw figures are kept
+in the output alongside which one was actually used (`roe_source`) — never
+silently substituted, since docs/screener-integration-design.md §2
+established these are genuinely different numbers by methodology, not
+interchangeable.
+
+Ranking: candidates missing trailing_pe (india_price only — Screener's
+trailing_pe isn't consulted here, this fix is scoped to the documented ROE
+gap) or with no ROE available from either source are excluded from ranking
+(not silently dropped — reported under `excluded` with a reason) since
+there's nothing to rank them on. Remaining candidates get a
+composite_rank_score = ascending-PE rank + descending-ROE rank (ties broken
+by symbol) — lower is better. This is a simple, transparent heuristic, not
+a valuation model; it surfaces candidates worth a closer look, not a buy
+list.
 
 Usage:
   uv run python screen_rank.py --industry "Automobile and Auto Components" \\
@@ -51,8 +67,14 @@ def _slug(industry: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", industry.lower()).strip("-")
 
 
-def compute(candidates: list[dict], fundamentals_by_symbol: dict[str, dict], quotes: list[dict] | None = None) -> dict:
+def compute(
+    candidates: list[dict],
+    fundamentals_by_symbol: dict[str, dict],
+    quotes: list[dict] | None = None,
+    screener_fundamentals_by_symbol: dict[str, dict] | None = None,
+) -> dict:
     quote_by_symbol = {_bare(q["symbol"]): q for q in (quotes or []) if not q.get("error")}
+    screener_fundamentals_by_symbol = screener_fundamentals_by_symbol or {}
 
     rankable: list[dict] = []
     excluded: list[dict] = []
@@ -66,11 +88,27 @@ def compute(candidates: list[dict], fundamentals_by_symbol: dict[str, dict], quo
         if f.get("error"):
             excluded.append({"symbol": symbol, "reason": f"fundamentals error: {f['error']}"})
             continue
+
+        screener_f = screener_fundamentals_by_symbol.get(symbol)
+        screener_roe = screener_f.get("roe_pct") if screener_f and not screener_f.get("error") else None
+        yfinance_roe = f.get("return_on_equity_pct")
+        # Prefer Screener's ROE — fixes #9's sector-wide yfinance nulls — but
+        # never conflate the two: both raw figures ride along in the output.
+        if screener_roe is not None:
+            roe, roe_source = screener_roe, "screener.in"
+        elif yfinance_roe is not None:
+            roe, roe_source = yfinance_roe, "yfinance"
+        else:
+            roe, roe_source = None, None
+
         pe = f.get("trailing_pe")
-        roe = f.get("return_on_equity_pct")
         if pe is None or pe <= 0 or roe is None:
             excluded.append(
-                {"symbol": symbol, "reason": "missing or non-positive trailing_pe, or missing return_on_equity_pct"}
+                {
+                    "symbol": symbol,
+                    "reason": "missing or non-positive trailing_pe, or ROE unavailable from both "
+                    "india_price and india_screener",
+                }
             )
             continue
         quote = quote_by_symbol.get(symbol)
@@ -79,7 +117,10 @@ def compute(candidates: list[dict], fundamentals_by_symbol: dict[str, dict], quo
                 "symbol": symbol,
                 "name": c.get("name"),
                 "trailing_pe": pe,
-                "return_on_equity_pct": roe,
+                "return_on_equity_pct": yfinance_roe,
+                "screener_roe_pct": screener_roe,
+                "roe_pct_used": roe,
+                "roe_source": roe_source,
                 "debt_to_equity": f.get("debt_to_equity"),
                 "market_cap_inr": f.get("market_cap_inr"),
                 "last_price": quote.get("last_price") if quote else None,
@@ -91,7 +132,7 @@ def compute(candidates: list[dict], fundamentals_by_symbol: dict[str, dict], quo
 
     pe_order = sorted(rankable, key=lambda r: (r["trailing_pe"], r["symbol"]))
     pe_rank = {r["symbol"]: i for i, r in enumerate(pe_order)}
-    roe_order = sorted(rankable, key=lambda r: (-r["return_on_equity_pct"], r["symbol"]))
+    roe_order = sorted(rankable, key=lambda r: (-r["roe_pct_used"], r["symbol"]))
     roe_rank = {r["symbol"]: i for i, r in enumerate(roe_order)}
 
     for r in rankable:
@@ -128,13 +169,26 @@ if __name__ == "__main__":
             payload = json.loads(fpath.read_text())
             fundamentals_by_symbol[symbol] = payload.get("data", payload)
 
+    # Optional — engine/tool_capture.py only writes this file if the model
+    # actually called india_screener.get_fundamentals for that symbol.
+    # Missing is not an error, it just falls back to yfinance's ROE alone
+    # for that candidate (the pre-fix #9 behavior).
+    screener_fundamentals_by_symbol: dict[str, dict] = {}
+    for c in candidates:
+        symbol = c["symbol"]
+        fpath = data_dir / f"fundamentals_screener_{symbol}_{args.as_of}.json"
+        if fpath.is_file():
+            payload = json.loads(fpath.read_text())
+            screener_fundamentals_by_symbol[symbol] = payload.get("data", payload)
+
     quotes = json.loads(Path(args.quotes).read_text()).get("data") if args.quotes else None
 
-    result = compute(candidates, fundamentals_by_symbol, quotes)
+    result = compute(candidates, fundamentals_by_symbol, quotes, screener_fundamentals_by_symbol)
     result["industry"] = args.industry
     result["as_of"] = args.as_of
     result["source"] = (
         "screen_rank.py over india_price.get_fundamentals"
+        + (" + india_screener.get_fundamentals" if screener_fundamentals_by_symbol else "")
         + (" + india_price.get_quote" if quotes else "")
         + " (candidate universe: local instruments master, Nifty 500 coverage only)"
     )

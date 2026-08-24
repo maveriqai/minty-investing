@@ -185,6 +185,46 @@ with a Sources footer, and carries the SEBI disclaimer. Minty is
 read-only against your broker by construction — order-placing tools are
 never in its tool surface at all, not just withheld by policy.
 
+## Data sources
+
+Minty's own data tools (`mcp/india_price`, `india_filings`, `india_macro`,
+`india_news`, `india_screener`) pull from a few different places, and
+they're not all the same kind of source:
+
+- **NSE/BSE via yfinance** (`india_price`) and **NSE's own public JSON
+  API** (`india_filings`, `india_macro`) are polite wrappers around
+  primary sources' own endpoints — throttled, cached, circuit-breaker'd
+  (`mcp/common/`), same as any well-behaved client of a public API.
+- **Screener.in** (`india_screener` — ROE, ROCE, and the multi-year ROE
+  trend, which fills a real yfinance gap: it returns `null` ROE for entire
+  sectors) is different in kind. Screener has no official API and no
+  published rate-limit or markup-stability contract, so this is a plain,
+  polite, anonymous scraper — 5s/request throttle, byte-exact cache,
+  circuit breaker — not a wrapped endpoint. Anonymous access to the
+  company pages this reads was verified live and works with no login; see
+  [`docs/screener-integration-design.md`](docs/screener-integration-design.md)
+  for the full investigation and the exact decisions behind it. Two things
+  worth knowing if you're relying on this or adapting the skill elsewhere:
+  - A field can genuinely be missing for a company (a young listing
+    without 10 years of history) — that's reported as `None`, not an
+    error. A field the parser *expected* but couldn't read, because
+    Screener changed their page layout, is a different case: it's caught
+    and surfaces as `data.error` rather than silently returning a wrong or
+    misaligned number. If you ever see a Screener-sourced field come back
+    wrong or missing, treat it as "their markup may have changed," not a
+    bug in your query.
+  - If Screener ever starts blocking anonymous requests — no rate-limit
+    contract means this could change anytime — calls fail loudly with
+    `ScreenerBlockedError`, mapped to `data.error`, not a hang or a
+    quietly empty result. The fallback (session-cookie auth) is already
+    designed, just not built, since it isn't needed today —
+    `docs/screener-integration-design.md` §6 has the plan if you need to
+    pick it up.
+
+Every tool call is provenance-tagged (`source`, `as_of`), and every skill
+output ends with a Sources footer, so any number Minty gives you traces
+back to exactly where it came from and when it was fetched.
+
 ## Optional: morning reminder
 
 Minty never runs unattended — every digest is generated on-demand, in a

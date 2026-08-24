@@ -88,9 +88,17 @@ tool, never eyeballed.
      plays out. Record what the user states — this skill doesn't derive a
      valuation (no DCF/comps skill exists yet). For a fundamentals pillar
      (P/E, EPS, margins, ROE, revenue/earnings growth), pull real figures
-     via `india_price.get_fundamentals(symbol)` rather than leaving it TBD
-     or guessing — report gaps honestly where a field comes back `None`
-     (common for thinly-covered small/micro-caps).
+     via `india_price.get_fundamentals(symbol)` — rather than leaving it
+     TBD or guessing — **and** `india_screener.get_fundamentals(symbol)`
+     for ROCE and the 10/5/3-year/last-year ROE trend, which yfinance
+     doesn't have at all. When citing ROE, prefer Screener's `roe_pct`
+     over yfinance's `return_on_equity_pct` if both came back — they're
+     genuinely different numbers by methodology, not a rounding nuance
+     (docs/screener-integration-design.md §2) — and say which source
+     you're citing rather than presenting one blended figure. Report gaps
+     honestly where a field comes back `None` (common for thinly-covered
+     small/micro-caps, and Screener has no markup-stability contract
+     either — see §5).
    - **Stop-loss / exit trigger**: what would make the user exit.
    - **Entry price + date**: for the deterministic move-tracking below —
      use the real average price from holdings if it's an existing

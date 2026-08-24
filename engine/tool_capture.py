@@ -90,6 +90,10 @@ CAPTURE_SPECS: dict[tuple[str, str], FilenameFn] = {
     ("india_news", "get_news"): lambda args, today: f"news_{_symbol(args, 'query')}_{today}.json",
     ("india_filings", "get_shareholding_pattern"): lambda args, today: f"shareholding_{_symbol(args)}_{today}.json",
     ("india_price", "get_fundamentals"): lambda args, today: f"fundamentals_{_symbol(args)}_{today}.json",
+    (
+        "india_screener",
+        "get_fundamentals",
+    ): lambda args, today: f"fundamentals_screener_{_symbol(args)}_{today}.json",
     ("india_price", "get_daily_ohlcv"): lambda args, today: f"{_symbol(args)}_ohlcv_1y.json",
     ("india_filings", "get_fii_dii_flows"): lambda args, today: f"fii_dii_{today}.json",
 }

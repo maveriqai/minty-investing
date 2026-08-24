@@ -49,12 +49,19 @@ def test_capture_path_symbol_keyed_tools_uppercase_the_symbol(tmp_path):
         "mcp__india_filings__get_shareholding_pattern", {"symbol": "reliance"}, tmp_path
     )
     fundamentals = capture_path("mcp__india_price__get_fundamentals", {"symbol": "reliance"}, tmp_path)
+    fundamentals_screener = capture_path(
+        "mcp__india_screener__get_fundamentals", {"symbol": "reliance"}, tmp_path
+    )
     ohlcv = capture_path("mcp__india_price__get_daily_ohlcv", {"symbol": "reliance"}, tmp_path)
     news = capture_path("mcp__india_news__get_news", {"query": "reliance"}, tmp_path)
 
     assert announcements.name == f"announcements_RELIANCE_{_TODAY}.json"
     assert shareholding.name == f"shareholding_RELIANCE_{_TODAY}.json"
     assert fundamentals.name == f"fundamentals_RELIANCE_{_TODAY}.json"
+    # Deliberately a different filename than india_price's own capture
+    # above — the two tools' fundamentals must never overwrite each other,
+    # since screen_rank.py (and friends) read both to merge sources.
+    assert fundamentals_screener.name == f"fundamentals_screener_RELIANCE_{_TODAY}.json"
     assert ohlcv.name == "RELIANCE_ohlcv_1y.json"
     assert news.name == f"news_RELIANCE_{_TODAY}.json"
 

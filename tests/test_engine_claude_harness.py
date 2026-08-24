@@ -380,6 +380,7 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
         "kite_gateway",
         "india_price",
         "india_filings",
+        "india_screener",
         "india_macro",
         "india_news",
     }

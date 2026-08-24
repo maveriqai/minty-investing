@@ -487,6 +487,7 @@ name = "minty-investing"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "claude-agent-sdk" },
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
@@ -504,6 +505,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12,<5" },
     { name = "claude-agent-sdk", specifier = ">=0.2.126,<0.3" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.6.0,<2" },

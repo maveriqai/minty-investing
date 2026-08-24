@@ -1,0 +1,22 @@
+<!--
+Synthesized, not captured live — a real block response hasn't been observed
+yet (see docs/screener-integration-design.md §6/§9). Modeled on the generic
+shape anti-bot vendors (Cloudflare etc.) return: a captcha challenge page
+with no ratio-card/financial-table content at all. Exists so
+_is_blocked_response() has fixture coverage for the block path, not just the
+happy path.
+-->
+<!DOCTYPE html>
+<html>
+<head><title>Attention Required! | screener.in</title></head>
+<body>
+  <div class="cf-error-details">
+    <h1>Access Denied</h1>
+    <p>Please complete the CAPTCHA below to continue. Your request looked
+    automated and has been rate limited.</p>
+    <div class="captcha-widget" data-sitekey="0x0000000000000000000000">
+      Too Many Requests — please slow down and try again later.
+    </div>
+  </div>
+</body>
+</html>

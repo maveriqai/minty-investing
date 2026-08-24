@@ -8,6 +8,7 @@ tool_call_budgets:
   # flagged to the engine's own console if exceeded. Set just above the
   # 25-candidate default cap in list_candidates.py's own --limit.
   india_price.get_fundamentals: 25
+  india_screener.get_fundamentals: 25
 deterministic_scripts:
   - id: list_candidates
     path: scripts/list_candidates.py
@@ -66,27 +67,36 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    user explicitly asks for a wider sweep.
 
 4. **Fetch fundamentals and quotes for every candidate.** Call
-   `india_price.get_fundamentals(symbol)` once per candidate, using the
-   bare NSE symbol exactly as it appears in the candidates file (no `.NS`/
-   `.BO` suffix) — the engine auto-saves each call to its own
-   `data/fundamentals_<SYMBOL>_<date>.json`, so there's nothing to
-   manually assemble. Then make **one** batched
-   `india_price.get_quote(symbols)` call covering every candidate together
-   — a second `get_quote` call this same turn would overwrite the first
-   capture (same filename, `data/live_quotes_<date>.json`), silently
-   losing data for whichever candidates were only in the first batch.
+   `india_price.get_fundamentals(symbol)` **and**
+   `india_screener.get_fundamentals(symbol)` once each per candidate, using
+   the bare NSE symbol exactly as it appears in the candidates file (no
+   `.NS`/`.BO` suffix) — the engine auto-saves each call to its own
+   `data/fundamentals_<SYMBOL>_<date>.json` /
+   `data/fundamentals_screener_<SYMBOL>_<date>.json`, so there's nothing to
+   manually assemble. Both calls matter: yfinance's ROE comes back null for
+   entire sectors (Consumer Cyclical, Energy confirmed live — see #9), and
+   `screen_rank.py` prefers Screener's ROE when it's available specifically
+   to fix that gap — skipping the `india_screener` call for a candidate
+   just means it falls back to yfinance's (possibly null) figure alone.
+   Then make **one** batched `india_price.get_quote(symbols)` call covering
+   every candidate together — a second `get_quote` call this same turn
+   would overwrite the first capture (same filename,
+   `data/live_quotes_<date>.json`), silently losing data for whichever
+   candidates were only in the first batch.
 
 5. **Run the deterministic ranking.** Call the `run_screen_rank` tool
    (not Bash) with `workspace_root`, `industry`, `candidates` (the exact
    path from step 3), and `quotes` (the exact path from step 4, if you
-   made that call). The tool finds each candidate's fundamentals file
+   made that call). The tool finds each candidate's fundamentals files
    itself from the candidates list and today's date — no need to pass
    fundamentals paths individually. Writes
    `results/screen_<industry-slug>_<date>.json` — `ranked` (composite
    score on ascending trailing P/E + descending ROE, with a
-   `high_leverage_flag`) and `excluded` (candidates with no fetched
-   fundamentals, a fetch error, or no usable P/E/ROE, each with a reason —
-   report these too, don't silently drop them).
+   `high_leverage_flag`, `roe_pct_used`, and `roe_source` — "screener.in"
+   or "yfinance", so it's always traceable which figure actually drove the
+   ranking) and `excluded` (candidates with no fetched fundamentals, a
+   fetch error, or no usable P/E/ROE from either source, each with a
+   reason — report these too, don't silently drop them).
 
 6. **Optionally red-flag-annotate the top 5.** For the top 5 entries in
    `ranked`, fetch whatever announcements/surveillance/news you can for
@@ -103,13 +113,15 @@ morning-digest/portfolio-health-check/thesis-tracker require.
 
 8. **Compose the brief:** state the filter applied (industry label,
    candidate count, cap), then candidate cards for the top of `ranked`
-   (symbol, name, P/E, ROE, leverage flag, last price/day change, any
-   red-flag annotations from step 6), then the `excluded` list with
-   reasons if the user asks why a name they expected isn't ranked. Close
-   with a Sources footer (instruments-master as-of from
-   `list_candidates.py`'s `source` field, every `get_fundamentals`/
-   `get_quote`/`get_news` as-of date, both `results`/`data` file paths)
-   and the exact SEBI disclaimer from docs/vision.md §5.
+   (symbol, name, P/E, ROE with its `roe_source` noted — e.g. "ROE 13.1%
+   (Screener.in)" — leverage flag, last price/day change, any red-flag
+   annotations from step 6), then the `excluded` list with reasons if the
+   user asks why a name they expected isn't ranked. Close with a Sources
+   footer (instruments-master as-of from `list_candidates.py`'s `source`
+   field, every `get_fundamentals`/`get_quote`/`get_news` as-of date —
+   both india_price's and india_screener's, when the latter was called —
+   both `results`/`data` file paths) and the exact SEBI disclaimer from
+   docs/vision.md §5.
 
 ## Guardrails
 
@@ -128,3 +140,11 @@ morning-digest/portfolio-health-check/thesis-tracker require.
   test.
 - Nifty 500 coverage only — if the user names a stock outside that
   universe, say it's not covered rather than fabricating a sector for it.
+- `return_on_equity_pct` (yfinance) and `screener_roe_pct` (Screener.in)
+  are genuinely different numbers by methodology, not a rounding nuance
+  (docs/screener-integration-design.md §2) — when citing ROE, say which
+  source `roe_source` names, don't present it as one universal figure.
+- Screener.in has no published API or markup-stability contract — a
+  candidate's `screener_roe_pct` coming back missing may just mean
+  Screener's page layout changed for that name, not that the company lacks
+  the data.

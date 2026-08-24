@@ -44,7 +44,9 @@ def test_candidate_missing_pe_or_roe_is_excluded_not_ranked():
         fundamentals_by_symbol={"NOPE": {"trailing_pe": None, "return_on_equity_pct": 12.0}},
     )
     assert result["ranked"] == []
-    assert result["excluded"][0]["reason"] == "missing or non-positive trailing_pe, or missing return_on_equity_pct"
+    assert result["excluded"][0]["reason"] == (
+        "missing or non-positive trailing_pe, or ROE unavailable from both india_price and india_screener"
+    )
 
 
 def test_negative_pe_is_excluded_not_ranked_as_cheap():
@@ -113,3 +115,66 @@ def test_no_quotes_at_all_still_ranks_on_fundamentals_alone():
     )
     assert result["ranked"][0]["last_price"] is None
     assert result["ranked_count"] == 1
+
+
+def test_null_yfinance_roe_fixed_by_screener_fundamentals():
+    # The exact #9 shape: yfinance's return_on_equity_pct is null (an entire
+    # sector, confirmed live) but india_screener has a real figure — the
+    # candidate must rank, not be excluded.
+    result = sr.compute(
+        [_candidate("APOLLOTYRE")],
+        fundamentals_by_symbol={"APOLLOTYRE": {"trailing_pe": 13.3, "return_on_equity_pct": None}},
+        screener_fundamentals_by_symbol={"APOLLOTYRE": {"roe_pct": 13.1}},
+    )
+    assert result["ranked_count"] == 1
+    r = result["ranked"][0]
+    assert r["roe_pct_used"] == 13.1
+    assert r["roe_source"] == "screener.in"
+    assert r["return_on_equity_pct"] is None
+    assert r["screener_roe_pct"] == 13.1
+
+
+def test_screener_roe_preferred_over_yfinance_when_both_present():
+    result = sr.compute(
+        [_candidate("TCS")],
+        fundamentals_by_symbol={"TCS": {"trailing_pe": 25.0, "return_on_equity_pct": 46.44}},
+        screener_fundamentals_by_symbol={"TCS": {"roe_pct": 51.8}},
+    )
+    r = result["ranked"][0]
+    assert r["roe_pct_used"] == 51.8
+    assert r["roe_source"] == "screener.in"
+    # The raw yfinance figure still rides along, never overwritten.
+    assert r["return_on_equity_pct"] == 46.44
+
+
+def test_falls_back_to_yfinance_roe_when_screener_not_fetched():
+    result = sr.compute(
+        [_candidate("RELIANCE")],
+        fundamentals_by_symbol={"RELIANCE": {"trailing_pe": 20.0, "return_on_equity_pct": 10.0}},
+        screener_fundamentals_by_symbol=None,
+    )
+    r = result["ranked"][0]
+    assert r["roe_pct_used"] == 10.0
+    assert r["roe_source"] == "yfinance"
+    assert r["screener_roe_pct"] is None
+
+
+def test_screener_fundamentals_error_envelope_falls_back_to_yfinance():
+    result = sr.compute(
+        [_candidate("GILLETTE")],
+        fundamentals_by_symbol={"GILLETTE": {"trailing_pe": 36.4, "return_on_equity_pct": 60.0}},
+        screener_fundamentals_by_symbol={"GILLETTE": {"error": "Screener circuit open"}},
+    )
+    r = result["ranked"][0]
+    assert r["roe_pct_used"] == 60.0
+    assert r["roe_source"] == "yfinance"
+
+
+def test_both_roe_sources_null_still_excludes():
+    result = sr.compute(
+        [_candidate("NOPE")],
+        fundamentals_by_symbol={"NOPE": {"trailing_pe": 10.0, "return_on_equity_pct": None}},
+        screener_fundamentals_by_symbol={"NOPE": {"roe_pct": None}},
+    )
+    assert result["ranked"] == []
+    assert result["excluded_count"] == 1

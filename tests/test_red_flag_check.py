@@ -44,6 +44,7 @@ def test_no_inputs_skips_every_check():
         "announcement_keywords",
         "news_keywords",
         "fundamentals_thresholds",
+        "screener_roe_trend",
     }
 
 
@@ -129,3 +130,31 @@ def test_upstream_tool_error_treated_as_missing_not_crash():
     assert result["flags"] == []
     assert "fundamentals_thresholds" in result["checks_skipped"]
     assert "announcement_keywords" in result["checks_skipped"]
+
+
+def test_screener_roe_deteriorating_flagged():
+    fundamentals_screener = _envelope({"roe_last_year_pct": 5.0, "roe_3yr_avg_pct": 12.0})
+    result = rfc.compute(symbol="STOCKA", fundamentals_screener=fundamentals_screener)
+    assert any(f["category"] == "roe_deteriorating" for f in result["flags"])
+    assert "screener_roe_trend" in result["checks_performed"]
+
+
+def test_screener_roe_stable_not_flagged():
+    fundamentals_screener = _envelope({"roe_last_year_pct": 13.0, "roe_3yr_avg_pct": 12.0})
+    result = rfc.compute(symbol="STOCKA", fundamentals_screener=fundamentals_screener)
+    assert result["flags"] == []
+    assert "screener_roe_trend" in result["checks_performed"]
+
+
+def test_screener_roe_missing_fields_stays_soft_no_crash():
+    fundamentals_screener = _envelope({"roe_last_year_pct": None, "roe_3yr_avg_pct": None})
+    result = rfc.compute(symbol="STOCKA", fundamentals_screener=fundamentals_screener)
+    assert result["flags"] == []
+    assert "screener_roe_trend" in result["checks_performed"]
+
+
+def test_screener_fundamentals_error_treated_as_missing():
+    broken = _envelope({"error": "Screener blocked"})
+    result = rfc.compute(symbol="STOCKA", fundamentals_screener=broken)
+    assert result["flags"] == []
+    assert "screener_roe_trend" in result["checks_skipped"]
