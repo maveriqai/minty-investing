@@ -94,7 +94,14 @@ _KITE_LOGIN_SYSTEM_PROMPT = (
     "order-modifying tools are never in Minty's own tool surface at all, "
     "not just withheld by policy, regardless of what the underlying "
     "Zerodha OAuth grant technically permits. Say this at the moment you "
-    "ask them to connect, not only if they ask later."
+    "ask them to connect, not only if they ask later.\n\n"
+    "Separately: if you're about to call any other kite_gateway tool ad "
+    "hoc — not as part of a skill step that already calls get_profile "
+    "itself (morning-digest step 3, portfolio-health-check step 2) — call "
+    "kite_gateway.get_profile once first. This is what populates Minty's "
+    "own account-identity anchor (data/account_identity.json); skipping "
+    "it leaves the Kite connection status line reporting 'not connected' "
+    "on every future session even once you have real cached data."
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
