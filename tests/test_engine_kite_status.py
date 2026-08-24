@@ -159,6 +159,27 @@ def test_falls_through_to_not_connected_when_content_blocks_have_no_text_block(t
     assert line.startswith("Zerodha not connected yet")
 
 
+def test_falls_through_to_not_connected_when_data_list_has_a_non_dict_element(tmp_path, monkeypatch):
+    # A malformed/hand-edited anchor file, or a future upstream shape
+    # change, could put a bare string (or any non-dict) in the data list —
+    # anchor_user_id must degrade to "no identity yet", not raise
+    # AttributeError from block.get() on a non-dict (found in review of
+    # issue #19's PostToolUse hook, which now calls this on every
+    # get_profile response).
+    _patch_repo_root(monkeypatch, tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "account_identity.json").write_text(
+        json.dumps({"source": "kite", "as_of": "2026-08-19 09:00 IST", "data": ["not a block", {"type": "image"}]})
+    )
+    workspace_root = tmp_path / "workspace"
+    _write_holdings(workspace_root, datetime.now(_IST).date())
+
+    line = kite_connection_status_line(workspace_root)
+
+    assert line.startswith("Zerodha not connected yet")
+
+
 def test_falls_through_to_not_connected_on_corrupt_identity_file(tmp_path, monkeypatch):
     _patch_repo_root(monkeypatch, tmp_path)
     data_dir = tmp_path / "data"

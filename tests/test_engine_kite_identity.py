@@ -48,7 +48,6 @@ def test_record_profile_response_no_mismatch_when_ids_match(monkeypatch, tmp_pat
     state.record_profile_response({"data": {"user_id": "AB1234"}})
 
     assert state.mismatch is False
-    assert state.live_user_id == "AB1234"
 
 
 def test_record_profile_response_flags_mismatch(monkeypatch, tmp_path):
@@ -59,7 +58,6 @@ def test_record_profile_response_flags_mismatch(monkeypatch, tmp_path):
     state.record_profile_response({"data": {"user_id": "ZZ9999"}})
 
     assert state.mismatch is True
-    assert state.live_user_id == "ZZ9999"
 
 
 def test_record_profile_response_no_mismatch_when_no_anchor_exists_yet(monkeypatch, tmp_path):
@@ -79,7 +77,6 @@ def test_record_profile_response_leaves_state_unchanged_on_unparseable_response(
     state.record_profile_response("garbage, not a dict")
 
     assert state.mismatch is False
-    assert state.live_user_id is None
 
 
 def test_mismatch_never_resets_to_false_once_confirmed(monkeypatch, tmp_path):
@@ -94,4 +91,40 @@ def test_mismatch_never_resets_to_false_once_confirmed(monkeypatch, tmp_path):
     # mismatch is a deliberate, out-of-band step (deleting the anchor
     # file), never something a later tool call should silently undo.
     state.record_profile_response({"data": {"user_id": "AB1234"}})
+    assert state.mismatch is True
+
+
+def test_record_profile_response_does_not_reread_anchor_once_mismatch_confirmed(monkeypatch, tmp_path):
+    anchor_path = tmp_path / "account_identity.json"
+    monkeypatch.setattr(kite_status, "ACCOUNT_IDENTITY_FILE", anchor_path)
+    anchor_path.write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
+
+    state = IdentityGuardState()
+    state.record_profile_response({"data": {"user_id": "ZZ9999"}})
+    assert state.mismatch is True
+
+    # Once confirmed, a later call must not touch the anchor file again —
+    # deleting it (simulating the file being unavailable/corrupted) must
+    # not be able to change the already-terminal verdict.
+    anchor_path.unlink()
+    state.record_profile_response({"data": {"user_id": "AB1234"}})
+    assert state.mismatch is True
+
+
+def test_record_profile_response_picks_up_an_anchor_written_after_the_first_call(monkeypatch, tmp_path):
+    # The anchor can still be missing on a get_profile call's own first
+    # comparison (a fresh install) and then get written moments later by
+    # that same call's write-once capture (engine/tool_capture.py) — a
+    # "no anchor" result must never be cached as permanent, unlike a
+    # "found" one, or a later call in the same session would wrongly skip
+    # comparing against an anchor that now exists.
+    anchor_path = tmp_path / "account_identity.json"
+    monkeypatch.setattr(kite_status, "ACCOUNT_IDENTITY_FILE", anchor_path)
+
+    state = IdentityGuardState()
+    state.record_profile_response({"data": {"user_id": "AB1234"}})
+    assert state.mismatch is False
+
+    anchor_path.write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
+    state.record_profile_response({"data": {"user_id": "ZZ9999"}})
     assert state.mismatch is True

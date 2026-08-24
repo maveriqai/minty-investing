@@ -67,6 +67,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 from claude_agent_sdk.types import PostToolUseHookInput, PreToolUseHookInput
 
 from engine import skills
+from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.skill_tools import build_skill_tools_server
@@ -143,10 +144,6 @@ def _build_deny_hook(policy):
     return deny_order_tools
 
 
-def _tool_name_suffix(full_tool_name: str) -> str:
-    return full_tool_name.rsplit("__", 1)[-1] if "__" in full_tool_name else full_tool_name
-
-
 def _build_identity_record_hook(state: IdentityGuardState):
     """PostToolUse: the moment any `*__get_profile` call returns, compare
     its live `user_id` against `data/account_identity.json` and update
@@ -156,7 +153,7 @@ def _build_identity_record_hook(state: IdentityGuardState):
     way."""
 
     async def record_profile_identity(input_data: PostToolUseHookInput, tool_use_id: str | None, context):
-        if _tool_name_suffix(input_data.get("tool_name", "")) == "get_profile":
+        if tool_name_suffix(input_data.get("tool_name", "")) == "get_profile":
             state.record_profile_response(input_data.get("tool_response"))
         return {}
 
@@ -175,7 +172,7 @@ def _build_identity_deny_hook(state: IdentityGuardState):
 
     async def deny_on_identity_mismatch(input_data: PreToolUseHookInput, tool_use_id: str | None, context):
         tool_name = input_data.get("tool_name", "")
-        if _tool_name_suffix(tool_name) not in IDENTITY_GATED_TOOLS:
+        if tool_name_suffix(tool_name) not in IDENTITY_GATED_TOOLS:
             return {}
         if state.mismatch:
             return {

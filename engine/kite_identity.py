@@ -45,7 +45,7 @@ Deliberately narrow scope, and deliberately fail-open, not fail-closed:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from engine import kite_status
@@ -116,21 +116,37 @@ class IdentityGuardState:
     mismatch is confirmed there is no in-session way back (matches the
     skills' own prose today — resolving it is a deliberate, out-of-band
     step, deleting `data/account_identity.json` by hand, not something
-    reachable from inside a conversation)."""
+    reachable from inside a conversation), so `record_profile_response`
+    below short-circuits once it's set rather than re-reading the anchor
+    file on every later `get_profile` call for a verdict that can't
+    change."""
 
     mismatch: bool = False
-    live_user_id: str | None = None
+    _cached_anchor_user_id: str | None = field(default=None, repr=False)
 
     def record_profile_response(self, tool_response: Any) -> None:
         """No-op (state unchanged) if `tool_response` doesn't parse, or if
         there's no anchor yet to compare against — see this module's
         docstring for why an unparseable response must never be treated
-        as a mismatch."""
+        as a mismatch.
+
+        Caches a *found* anchor `user_id` (safe: the anchor is write-once,
+        so once read it can't change) but not its absence — a "no anchor
+        yet" result must stay live, since the anchor can still get written
+        later in the same session by this same `get_profile` call's own
+        write-once capture (engine/tool_capture.py), and a stale cached
+        None would then wrongly skip comparing against it on a later
+        call."""
+        if self.mismatch:
+            return
         user_id = user_id_from_get_profile_response(tool_response)
         if user_id is None:
             return
-        self.live_user_id = user_id
-        anchor = kite_status.anchor_user_id()
+        anchor = self._cached_anchor_user_id
+        if anchor is None:
+            anchor = kite_status.anchor_user_id()
+            if anchor is not None:
+                self._cached_anchor_user_id = anchor
         if anchor is not None and anchor != user_id:
             self.mismatch = True
 

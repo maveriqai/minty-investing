@@ -76,7 +76,10 @@ def anchor_user_id() -> str | None:
         envelope = json.loads(ACCOUNT_IDENTITY_FILE.read_text())
         data = envelope["data"]
         if isinstance(data, list):
-            text = next((block.get("text") for block in data if block.get("type") == "text"), None)
+            text = next(
+                (block.get("text") for block in data if isinstance(block, dict) and block.get("type") == "text"),
+                None,
+            )
             if text is None:
                 return None
             data = json.loads(text)
