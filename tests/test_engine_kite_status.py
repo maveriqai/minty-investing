@@ -25,7 +25,7 @@ def _write_identity_as_content_blocks(repo_root, user_id="AB1234"):
     """The shape a real Kite `get_profile` call actually returns when
     `structuredContent` is absent — the gateway falls back to a raw list
     of MCP content blocks (`mcp/kite_gateway/server.py`'s `call_tool`),
-    live-observed 2026-08-20 (issue #5/#7). `_account_user_id` must parse
+    live-observed 2026-08-20 (issue #5/#7). `anchor_user_id` must parse
     this shape too, not just the flat dict `_write_identity` above writes."""
     data_dir = repo_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)

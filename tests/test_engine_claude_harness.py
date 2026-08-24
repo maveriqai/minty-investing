@@ -13,6 +13,7 @@ from engine import config, run
 from engine.guardrail import ORDER_TOOL_NAMES, GuardrailPolicy
 from engine.harnesses import claude_agent_sdk as cas
 from engine.harnesses.base import EngineResult, ToolConfig
+from engine.kite_identity import IdentityGuardState
 
 FAKE_MCP_SERVERS = {
     "kite_gateway": {"command": "uv", "args": ["run", "python", "mcp/kite_gateway/server.py"]},
@@ -187,17 +188,27 @@ def test_build_options_sets_kite_login_read_only_system_prompt():
 
 
 def test_build_options_wires_a_pretooluse_hook():
-    # Two hooks: order-tool denial and Bash-scope denial. Tool-call
-    # budgets (engine/tool_budget.py) are audit-only — counted inside
+    # Three PreToolUse hooks: order-tool denial, Bash-scope denial, and
+    # the identity-mismatch deny hook (issue #19). Tool-call budgets
+    # (engine/tool_budget.py) are audit-only — counted inside
     # ClaudeSession.send() itself, not a PreToolUse hook — so they add no
-    # third hook here. See tool_budget.py's own docstring for why a hard
-    # deny hook was tried and dropped.
+    # extra hook here. See tool_budget.py's own docstring for why a hard
+    # deny hook was tried and dropped there specifically.
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills="all")
     options = cas._build_options(tools)
 
     assert "PreToolUse" in options.hooks
     assert len(options.hooks["PreToolUse"]) == 1
-    assert len(options.hooks["PreToolUse"][0].hooks) == 2
+    assert len(options.hooks["PreToolUse"][0].hooks) == 3
+
+
+def test_build_options_wires_a_posttooluse_hook_for_identity_recording():
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills="all")
+    options = cas._build_options(tools)
+
+    assert "PostToolUse" in options.hooks
+    assert len(options.hooks["PostToolUse"]) == 1
+    assert len(options.hooks["PostToolUse"][0].hooks) == 1
 
 
 def test_open_session_gives_the_session_a_budget_tracker_built_from_real_skills(monkeypatch):
@@ -314,6 +325,68 @@ def test_deny_hook_denies_order_tools_and_allows_safe_tools():
 
     allowed = asyncio.run(hook({"tool_name": "mcp__kite_gateway__get_holdings"}, "tool-use-2", {}))
     assert allowed == {}
+
+
+def test_identity_deny_hook_denies_gated_tools_only_after_a_confirmed_mismatch():
+    state = IdentityGuardState()
+    hook = cas._build_identity_deny_hook(state)
+
+    # No check has happened yet this session — deliberately still allowed,
+    # see engine/kite_identity.py's docstring for why "unchecked" isn't
+    # grounds for a hard deny.
+    allowed = asyncio.run(hook({"tool_name": "mcp__kite_gateway__get_holdings"}, "tool-use-1", {}))
+    assert allowed == {}
+
+    state.mismatch = True
+    denied = asyncio.run(hook({"tool_name": "mcp__kite_gateway__get_holdings"}, "tool-use-2", {}))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    denied_positions = asyncio.run(hook({"tool_name": "mcp__kite_gateway__get_positions"}, "tool-use-3", {}))
+    assert denied_positions["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    # A tool this hook doesn't gate stays unaffected even after a mismatch.
+    unaffected = asyncio.run(hook({"tool_name": "mcp__kite_gateway__get_margins"}, "tool-use-4", {}))
+    assert unaffected == {}
+
+
+def test_identity_record_hook_only_reacts_to_get_profile(monkeypatch, tmp_path):
+    from engine import kite_status
+
+    monkeypatch.setattr(kite_status, "ACCOUNT_IDENTITY_FILE", tmp_path / "account_identity.json")
+    (tmp_path / "account_identity.json").write_text('{"source": "kite", "data": {"user_id": "AB1234"}}')
+
+    state = IdentityGuardState()
+    hook = cas._build_identity_record_hook(state)
+
+    # Not get_profile — no-op regardless of tool_response shape.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_holdings", "tool_response": {"data": {"user_id": "ZZ9999"}}},
+            "tool-use-1",
+            {},
+        )
+    )
+    assert state.mismatch is False
+
+    # get_profile, matching account — no mismatch.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_profile", "tool_response": {"data": {"user_id": "AB1234"}}},
+            "tool-use-2",
+            {},
+        )
+    )
+    assert state.mismatch is False
+
+    # get_profile, different account — confirmed mismatch.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_profile", "tool_response": {"data": {"user_id": "ZZ9999"}}},
+            "tool-use-3",
+            {},
+        )
+    )
+    assert state.mismatch is True
 
 
 def test_bash_scope_hook_denies_out_of_scope_command_and_allows_matching_prefix():

@@ -55,7 +55,7 @@ def _newest_holdings_date(workspace_root: Path) -> date | None:
         return None
 
 
-def _account_user_id() -> str | None:
+def anchor_user_id() -> str | None:
     """None if the file is missing, corrupt, or doesn't have the expected
     shape — treated the same as "no identity yet", not an error.
 
@@ -66,7 +66,12 @@ def _account_user_id() -> str | None:
     against a real `get_profile` call to take the list-of-blocks shape, not
     the flat dict this originally assumed, which left every real "already
     connected" user stuck on the "not connected" line (see issue #5/#7).
-    Handles both."""
+    Handles both.
+
+    Public (not `_`-prefixed) so `engine/kite_identity.py`'s mismatch
+    check (issue #19) can reuse this exact anchor-reading logic instead of
+    duplicating it — the only caller inside this module is
+    `kite_connection_status_line` below."""
     try:
         envelope = json.loads(ACCOUNT_IDENTITY_FILE.read_text())
         data = envelope["data"]
@@ -93,7 +98,7 @@ def kite_connection_status_line(workspace_root: Path) -> str:
     """One line to print immediately after the Claude-login confirmation,
     before the REPL banner — never blocks anything, both branches just
     print and fall through to the normal prompt."""
-    user_id = _account_user_id()
+    user_id = anchor_user_id()
     holdings_date = _newest_holdings_date(workspace_root)
     if user_id is None or holdings_date is None:
         return _NOT_CONNECTED_LINE

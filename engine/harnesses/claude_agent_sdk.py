@@ -17,6 +17,13 @@ drift from each other. This logic, and the reasoning behind
 combination that actually enforces anything under headless/no-TTY use,
 carries over unchanged from the old repo's proven implementation.
 
+Separately, `_build_identity_record_hook`/`_build_identity_deny_hook`
+(issue #19) are a second, unrelated `PostToolUse`/`PreToolUse` pair: a
+deterministic backstop for the Zerodha account-identity mismatch check
+that was previously pure prose in three skills' own SKILL.md steps. See
+`engine/kite_identity.py`'s module docstring for the full design and its
+deliberately narrow, fail-open scope.
+
 `open_session()` uses `bypassPermissions` too — even though a real user is
 present for an interactive Session and could in principle answer approval
 prompts live via a `can_use_tool` callback. Deliberately deferred: building
@@ -57,10 +64,11 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
-from claude_agent_sdk.types import PreToolUseHookInput
+from claude_agent_sdk.types import PostToolUseHookInput, PreToolUseHookInput
 
 from engine import skills
 from engine.harnesses.base import EngineResult, ToolConfig
+from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.skill_tools import build_skill_tools_server
 from engine.sources_footer import build_footer
 from engine.staged_skill_tools import (
@@ -135,6 +143,59 @@ def _build_deny_hook(policy):
     return deny_order_tools
 
 
+def _tool_name_suffix(full_tool_name: str) -> str:
+    return full_tool_name.rsplit("__", 1)[-1] if "__" in full_tool_name else full_tool_name
+
+
+def _build_identity_record_hook(state: IdentityGuardState):
+    """PostToolUse: the moment any `*__get_profile` call returns, compare
+    its live `user_id` against `data/account_identity.json` and update
+    `state` — see engine/kite_identity.py for why this only ever moves
+    `state.mismatch` False -> True, never the reverse, and why an
+    unparseable response is a silent no-op rather than a guess either
+    way."""
+
+    async def record_profile_identity(input_data: PostToolUseHookInput, tool_use_id: str | None, context):
+        if _tool_name_suffix(input_data.get("tool_name", "")) == "get_profile":
+            state.record_profile_response(input_data.get("tool_response"))
+        return {}
+
+    return record_profile_identity
+
+
+def _build_identity_deny_hook(state: IdentityGuardState):
+    """PreToolUse: hard-denies `get_holdings`/`get_positions` once
+    `_build_identity_record_hook` above has confirmed a real account
+    mismatch this session — the engine-enforced backstop for what was
+    previously only a "stop if the accounts don't match" prose
+    instruction repeated in three skills' own SKILL.md steps (issue #19).
+    Never denies for any other reason (see engine/kite_identity.py's
+    docstring for why "no check has happened yet" deliberately isn't
+    grounds for a hard deny here)."""
+
+    async def deny_on_identity_mismatch(input_data: PreToolUseHookInput, tool_use_id: str | None, context):
+        tool_name = input_data.get("tool_name", "")
+        if _tool_name_suffix(tool_name) not in IDENTITY_GATED_TOOLS:
+            return {}
+        if state.mismatch:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "A different Zerodha account is connected than the one Minty has "
+                        "cached data for. Stop and tell the user plainly — don't fetch or "
+                        "overwrite cached holdings/positions. Engine-enforced, not something "
+                        "resolvable from inside this conversation: a human must delete "
+                        "data/account_identity.json to accept the new account."
+                    ),
+                }
+            }
+        return {}
+
+    return deny_on_identity_mismatch
+
+
 # The Bash tool executes via a real shell (pipes/redirects/&&/backgrounding
 # all work) — a prefix check alone doesn't stop a command that starts with an
 # allowed prefix and then chains something else after it. Denying any of
@@ -192,6 +253,11 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
             mcp_servers[STAGED_WORKFLOWS_SERVER_NAME] = staged_workflows_server
 
     server_names = list(mcp_servers.keys())
+    # One instance per `_build_options` call, i.e. per `open_session()` —
+    # shared by the two hooks below via closure, so an identity check
+    # earlier in a multi-turn session still gates a later turn's call, not
+    # just the turn that did the checking (issue #19).
+    identity_state = IdentityGuardState()
     kwargs = {
         "mcp_servers": mcp_servers,
         # Found live during the interactive-session smoke test: without this,
@@ -209,9 +275,13 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
                     hooks=[
                         _build_deny_hook(tools.guardrail),
                         _build_bash_scope_hook(tools.allowed_bash_prefixes),
+                        _build_identity_deny_hook(identity_state),
                     ],
                 )
-            ]
+            ],
+            "PostToolUse": [
+                HookMatcher(matcher=None, hooks=[_build_identity_record_hook(identity_state)])
+            ],
         },
         "setting_sources": ["project"],
         "skills": native_skill_names if isinstance(tools.skills, list) else tools.skills,
