@@ -45,9 +45,10 @@ def test_record_profile_response_no_mismatch_when_ids_match(monkeypatch, tmp_pat
     (tmp_path / "account_identity.json").write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
 
     state = IdentityGuardState()
-    state.record_profile_response({"data": {"user_id": "AB1234"}})
+    parsed = state.record_profile_response({"data": {"user_id": "AB1234"}})
 
     assert state.mismatch is False
+    assert parsed is True
 
 
 def test_record_profile_response_flags_mismatch(monkeypatch, tmp_path):
@@ -55,9 +56,10 @@ def test_record_profile_response_flags_mismatch(monkeypatch, tmp_path):
     (tmp_path / "account_identity.json").write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
 
     state = IdentityGuardState()
-    state.record_profile_response({"data": {"user_id": "ZZ9999"}})
+    parsed = state.record_profile_response({"data": {"user_id": "ZZ9999"}})
 
     assert state.mismatch is True
+    assert parsed is True
 
 
 def test_record_profile_response_no_mismatch_when_no_anchor_exists_yet(monkeypatch, tmp_path):
@@ -74,9 +76,27 @@ def test_record_profile_response_leaves_state_unchanged_on_unparseable_response(
     (tmp_path / "account_identity.json").write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
 
     state = IdentityGuardState()
-    state.record_profile_response("garbage, not a dict")
+    parsed = state.record_profile_response("garbage, not a dict")
 
     assert state.mismatch is False
+    # False signals "couldn't parse" — the caller (the PostToolUse hook)
+    # uses this to print a diagnostic rather than staying silently inert.
+    assert parsed is False
+
+
+def test_record_profile_response_returns_true_once_mismatch_already_confirmed(monkeypatch, tmp_path):
+    # Once terminal, later calls short-circuit before even trying to parse
+    # — still "True" (not a parse failure), since there's nothing left to
+    # diagnose.
+    monkeypatch.setattr(kite_status, "ACCOUNT_IDENTITY_FILE", tmp_path / "account_identity.json")
+    (tmp_path / "account_identity.json").write_text(json.dumps({"source": "kite", "data": {"user_id": "AB1234"}}))
+
+    state = IdentityGuardState()
+    state.record_profile_response({"data": {"user_id": "ZZ9999"}})
+    assert state.mismatch is True
+
+    parsed = state.record_profile_response("garbage, not a dict")
+    assert parsed is True
 
 
 def test_mismatch_never_resets_to_false_once_confirmed(monkeypatch, tmp_path):

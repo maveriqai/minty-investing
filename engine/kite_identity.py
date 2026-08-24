@@ -124,11 +124,10 @@ class IdentityGuardState:
     mismatch: bool = False
     _cached_anchor_user_id: str | None = field(default=None, repr=False)
 
-    def record_profile_response(self, tool_response: Any) -> None:
-        """No-op (state unchanged) if `tool_response` doesn't parse, or if
-        there's no anchor yet to compare against — see this module's
-        docstring for why an unparseable response must never be treated
-        as a mismatch.
+    def record_profile_response(self, tool_response: Any) -> bool:
+        """State unchanged if `tool_response` doesn't parse, or if there's
+        no anchor yet to compare against — see this module's docstring for
+        why an unparseable response must never be treated as a mismatch.
 
         Caches a *found* anchor `user_id` (safe: the anchor is write-once,
         so once read it can't change) but not its absence — a "no anchor
@@ -136,12 +135,23 @@ class IdentityGuardState:
         later in the same session by this same `get_profile` call's own
         write-once capture (engine/tool_capture.py), and a stale cached
         None would then wrongly skip comparing against it on a later
-        call."""
+        call.
+
+        Returns False only when `tool_response` couldn't be parsed at all
+        — the caller (`_build_identity_record_hook` in
+        `engine/harnesses/claude_agent_sdk.py`) uses this to print a
+        diagnostic, mirroring `engine/tool_budget.py`'s own
+        audit-only-but-visible pattern: this module's own docstring admits
+        the real `tool_response` shape isn't live-verified yet, so a
+        silent parse failure here would otherwise mean the whole mismatch
+        check is quietly inert with nothing anywhere to reveal that. True
+        for every other outcome, including the normal "no anchor to
+        compare against yet" case, which is expected, not a failure."""
         if self.mismatch:
-            return
+            return True
         user_id = user_id_from_get_profile_response(tool_response)
         if user_id is None:
-            return
+            return False
         anchor = self._cached_anchor_user_id
         if anchor is None:
             anchor = kite_status.anchor_user_id()
@@ -149,6 +159,7 @@ class IdentityGuardState:
                 self._cached_anchor_user_id = anchor
         if anchor is not None and anchor != user_id:
             self.mismatch = True
+        return True
 
 
 __all__ = [

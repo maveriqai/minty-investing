@@ -149,12 +149,25 @@ def _build_identity_record_hook(state: IdentityGuardState):
     its live `user_id` against `data/account_identity.json` and update
     `state` — see engine/kite_identity.py for why this only ever moves
     `state.mismatch` False -> True, never the reverse, and why an
-    unparseable response is a silent no-op rather than a guess either
-    way."""
+    unparseable response never counts as a mismatch either way.
+
+    Prints one `[identity]` diagnostic per unparseable response instead of
+    staying silent — `engine/kite_identity.py`'s own docstring admits the
+    real `tool_response` shape isn't live-verified yet, so a permanently
+    wrong parsing guess would otherwise leave the whole mismatch check
+    quietly inert with nothing anywhere to reveal that, the same
+    audit-visible-but-non-blocking spirit as `engine/tool_budget.py`'s
+    `[budget] ...` lines."""
 
     async def record_profile_identity(input_data: PostToolUseHookInput, tool_use_id: str | None, context):
         if tool_name_suffix(input_data.get("tool_name", "")) == "get_profile":
-            state.record_profile_response(input_data.get("tool_response"))
+            parsed = state.record_profile_response(input_data.get("tool_response"))
+            if not parsed:
+                print(
+                    "[identity] couldn't parse this get_profile response for the "
+                    "account-identity check (issue #19) — the mismatch check did "
+                    "not run for this call."
+                )
         return {}
 
     return record_profile_identity

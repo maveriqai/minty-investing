@@ -389,6 +389,49 @@ def test_identity_record_hook_only_reacts_to_get_profile(monkeypatch, tmp_path):
     assert state.mismatch is True
 
 
+def test_identity_record_hook_prints_a_diagnostic_only_on_unparseable_responses(monkeypatch, tmp_path, capsys):
+    from engine import kite_status
+
+    monkeypatch.setattr(kite_status, "ACCOUNT_IDENTITY_FILE", tmp_path / "account_identity.json")
+    (tmp_path / "account_identity.json").write_text('{"source": "kite", "data": {"user_id": "AB1234"}}')
+
+    state = IdentityGuardState()
+    hook = cas._build_identity_record_hook(state)
+
+    # Parseable — no diagnostic.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_profile", "tool_response": {"data": {"user_id": "AB1234"}}},
+            "tool-use-1",
+            {},
+        )
+    )
+    assert "[identity]" not in capsys.readouterr().out
+
+    # Unparseable — one diagnostic line, state left alone.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_profile", "tool_response": "garbage, not a dict"},
+            "tool-use-2",
+            {},
+        )
+    )
+    out = capsys.readouterr().out
+    assert "[identity]" in out
+    assert state.mismatch is False
+
+    # Not get_profile at all — no diagnostic even with an unparseable
+    # tool_response, since this hook never looks at non-get_profile calls.
+    asyncio.run(
+        hook(
+            {"tool_name": "mcp__kite_gateway__get_holdings", "tool_response": "garbage, not a dict"},
+            "tool-use-3",
+            {},
+        )
+    )
+    assert "[identity]" not in capsys.readouterr().out
+
+
 def test_bash_scope_hook_denies_out_of_scope_command_and_allows_matching_prefix():
     hook = cas._build_bash_scope_hook(("uv run python skills/morning-digest/scripts/digest_math.py",))
 

@@ -178,6 +178,15 @@ exist).
    all (fresh workspace, never a successful fetch)? Then there's genuinely
    nothing to fall back to — say so plainly rather than guessing.
 
+   **This fallback is only for a real "no session" failure — never apply
+   it to an account-mismatch denial.** The engine also enforces the
+   identity check above itself (issue #19): if `get_holdings` is denied
+   with a message about a different Zerodha account being connected,
+   that's not "no active session" and this fallback does not apply. Treat
+   it exactly like the "Anchor existed and doesn't match" branch above —
+   stop, report the mismatch plainly, don't fetch or fall back to any
+   cached holdings file.
+
 4. **Fetch an index snapshot.** Call
    `india_price.get_quote(["^NSEI", "^BSESN", "^NSEBANK", "^INDIAVIX"])`
    for NIFTY 50, SENSEX, BANKNIFTY, and INDIA VIX last-price/day-change. The
