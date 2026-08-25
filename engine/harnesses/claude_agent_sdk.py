@@ -92,9 +92,7 @@ _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 # nothing from Minty itself. This fires from `system_prompt` rather than a
 # skill's own SKILL.md because the login prompt can be triggered without
 # any skill matching at all (an ad hoc "what are my holdings" goes straight
-# through `kite_gateway.get_holdings`) — deliberately the one always-on
-# instruction in the whole engine, kept to this single narrow behavior
-# rather than growing into a general system prompt.
+# through `kite_gateway.get_holdings`).
 _KITE_LOGIN_SYSTEM_PROMPT = (
     "Whenever you present a Kite/Zerodha login link to the user — whether "
     "you're running a skill or just answering an ad hoc question that "
@@ -112,6 +110,33 @@ _KITE_LOGIN_SYSTEM_PROMPT = (
     "it leaves the Kite connection status line reporting 'not connected' "
     "on every future session even once you have real cached data."
 )
+
+# Issue #14, piece 1 ("explicit remember"): `update_workspace_notes` is
+# already registered unconditionally (below), so nothing stops the model
+# calling it outside a skill step today except that every existing
+# instruction to do so lives inside a specific skill's own SKILL.md (e.g.
+# portfolio-health-check step 5, thesis-tracker's thesis-file step,
+# morning-digest step 11) — none of which fires on a plain ad hoc chat
+# turn. Same shape as the Kite-login prompt above: a behavior that has to
+# work whether or not any skill matched this turn, so it belongs in
+# `system_prompt`, not a skill file. Deliberately narrow — only the
+# user's own explicit "remember/note/save this" triggers it; this is not
+# the post-turn automatic extraction docs/next-phase-plan.md §8 also
+# discusses, which is unbuilt and would need its own, much more cautious
+# design (an automated judgment call risks polluting a file CLAUDE.md
+# wants small and hand-curated).
+_REMEMBER_SYSTEM_PROMPT = (
+    "If the user explicitly asks you to remember, note, or save something "
+    "for later — in any turn, whether or not a skill is running — call "
+    "update_workspace_notes yourself right then, target 'notes.md' unless "
+    "they're clearly talking about one specific stock's thesis (then "
+    "'theses/<SYMBOL>.md'). Read the current content first if the file "
+    "exists, merge your addition in, don't wait for a skill step to do "
+    "this for you and don't just say you'll remember it without actually "
+    "calling the tool."
+)
+
+_SYSTEM_PROMPT = f"{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
 # old repo, but a genuine session-limit *hit* (an error_during_execution
@@ -298,7 +323,7 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
         "setting_sources": ["project"],
         "skills": native_skill_names if isinstance(tools.skills, list) else tools.skills,
         "permission_mode": "bypassPermissions",
-        "system_prompt": _KITE_LOGIN_SYSTEM_PROMPT,
+        "system_prompt": _SYSTEM_PROMPT,
     }
     if tools.builtin_tools is not None:
         kwargs["tools"] = list(tools.builtin_tools)

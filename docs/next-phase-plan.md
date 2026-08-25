@@ -593,25 +593,44 @@ wrong:
   rule for `workspace/` (§4) — no new privacy surface, same
   personal-financial-data sensitivity as everything else already in
   there.
-- **"Adding a memory"** — read as something more ambitious than
-  transcripts: an automated extraction layer that watches a session and
-  writes durable facts into notes.md itself, closer to how a coding-agent
-  harness's own auto-memory feature works for its user, rather than
-  the current model where a skill's own SKILL.md steps are what update
-  notes.md (thesis-tracker's step 5, e.g.). Real potential upside — it
-  would remove "did the skill remember to write this down" as a failure
-  mode — but real cost too, and it cuts against a design choice CLAUDE.md
-  already made deliberately: notes.md stays small (≤2000 words),
-  hand-curated, and explicitly excludes exactly the kind of raw,
-  point-in-time content an automated extractor would be tempted to save.
-  The two real compounding proof points this project has (old repo,
-  2026-07-08/2026-07-15) came from the plain manual model working fine —
-  no evidence yet that automation is solving a problem that's actually
-  been hit. Recommend treating this as a real but low-priority idea, not
-  sequenced into §6 — revisit if/once thesis-tracker is ported and in real
-  use here and a specific "the model forgot to update notes.md" failure is
-  actually observed, the same evidence-before-building pattern the
-  workspace decision itself (§4) was made on.
+- **"Adding a memory"** (issue #14) — read as something more ambitious
+  than transcripts: getting a durable fact into notes.md without depending
+  on a specific skill's SKILL.md happening to have a save step for it.
+  Originally scoped here as a single automated-extraction feature and
+  deliberately not sequenced, on the grounds that no "the model forgot to
+  update notes.md" failure had actually been observed yet, and that an
+  automated judgment call cuts against notes.md staying small
+  (≤2000 words) and hand-curated. Revisited 2026-08-25 and picked up, but
+  split into three pieces of escalating risk rather than built as one:
 
-Not sequenced into §6 either way — flagged here so the distinction isn't
-lost before it's picked up.
+  1. **Explicit "remember this"** (built) — `update_workspace_notes`
+     (`engine/workspace_notes.py`) was already registered unconditionally
+     every turn; the only gap was that nothing told the model it could
+     call it outside a skill step. Fixed with a small always-on
+     `system_prompt` addition (`engine/harnesses/claude_agent_sdk.py`'s
+     `_REMEMBER_SYSTEM_PROMPT`, alongside the existing Kite-login one) —
+     when the user explicitly asks Minty to remember/note something, it's
+     saved immediately, same tool, same allow-listed targets. Zero
+     pollution risk since it's user-initiated, not an automated guess.
+  2. **Post-turn candidate extraction** (not yet built) — after any turn,
+     an engine-level check for whether something durable happened,
+     grounded in that turn's own prompt/response and whatever it captured
+     to `workspace/data/` this turn (same diff `_report_changed_files`
+     already computes). Writes a *candidate* to a new staging file, not
+     notes.md directly — this is the piece that's still an automated
+     judgment call, so it stays contained to low-stakes staging rather
+     than a permanent file.
+  3. **Session-start review** (not yet built) — next REPL start, unreviewed
+     candidates from (2) are shown with their grounding (referencing the
+     `workspace/sessions/<timestamp>.md` transcript, issue #13, and any
+     backing data file) for confirm/discard; confirmed ones go through
+     `update_workspace_notes`, the queue clears either way. This is the
+     human gate that keeps notes.md hand-curated even though (2)'s
+     extraction step isn't deterministic.
+
+  (2) and (3) are one coupled unit — no point building the noisier
+  extraction step without the review gate that makes it safe — sequenced
+  next once (1) has had some real use.
+
+Not sequenced into §6 — flagged here so the distinction isn't lost before
+it's picked up.
