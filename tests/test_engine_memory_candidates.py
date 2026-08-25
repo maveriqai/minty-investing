@@ -112,3 +112,15 @@ def test_stage_memory_candidate_tool_rejects_path_outside_known_roots(tmp_path, 
 
     assert result.get("is_error") is True
     assert not (outside / "memory_candidates.md").exists()
+
+
+def test_workspace_root_validation_is_shared_with_workspace_notes():
+    # Review of issue #14: this used to be a third copy of the same
+    # resolve-and-validate body — now both tools import the one shared
+    # engine.workspace.resolve_workspace_root_arg.
+    import engine.memory_candidates as memory_candidates_module
+    import engine.workspace as workspace_module
+    import engine.workspace_notes as workspace_notes_module
+
+    assert memory_candidates_module._resolve_workspace_root is workspace_module.resolve_workspace_root_arg
+    assert workspace_notes_module._resolve_workspace_root is workspace_module.resolve_workspace_root_arg

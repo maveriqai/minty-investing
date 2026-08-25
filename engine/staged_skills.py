@@ -29,6 +29,7 @@ from engine import skills
 from engine.harnesses.base import Harness, ToolConfig
 from engine.sources_footer import build_footer
 from engine.tool_capture import today_ist
+from engine.workspace import augment_prompt_with_workspace
 
 
 def _exists(resolved_pattern: str) -> bool:
@@ -122,7 +123,14 @@ async def run_staged_skill(
         ]
         present = [p for p in needed if _exists(p)]
         missing = [p for p in needed if not _exists(p)]
-        prompt = _build_stage_prompt(skill_body, stage, present=present, missing=missing)
+        # Augmented the same way engine/interactive.py's _run_turn augments
+        # every other session's prompt — without this, a stage nudged by
+        # the always-on update_workspace_notes/stage_memory_candidate
+        # system-prompt instructions has no reliable workspace_root to cite
+        # (found in review of issue #14).
+        prompt = augment_prompt_with_workspace(
+            _build_stage_prompt(skill_body, stage, present=present, missing=missing), workspace_root
+        )
 
         duration_ms = 0
         cost_usd = 0.0

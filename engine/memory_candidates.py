@@ -15,11 +15,16 @@ user before any of it can reach `update_workspace_notes`.
 
 Deliberately append-then-clear, not append-forever: `read_and_clear`
 empties the file the moment its content has been handed to a turn for
-review, so a candidate is never shown twice. This does mean a crash
-between that read and the user actually answering loses the pending
-review — accepted, same class of low-stakes risk as the session-transcript
-same-second collision (issue #13 review, finding 6): staging content, not
-the user's actual data, and a human hadn't acted on it yet either way.
+review, so a candidate is never shown twice. A failure during that review
+turn itself is caught and the content restored, rather than lost
+(`engine/interactive.py`'s `_repl`, found in review of issue #14) — the
+remaining risk window is narrower: a crash after the review turn succeeds
+but before the user actually replies still loses the pending decision,
+though by then the candidates have already been shown on screen and
+recorded in the session transcript, not silently gone. Accepted, same
+class of low-stakes risk as the session-transcript same-second collision
+(issue #13 review, finding 6): staging content, not the user's actual
+data, and a human hadn't acted on it yet either way.
 """
 
 from __future__ import annotations
@@ -31,7 +36,8 @@ from zoneinfo import ZoneInfo
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
-from engine.workspace import is_within_known_workspace_roots
+from engine.workspace import WORKSPACE_ROOT_ARG_DESCRIPTION as _WORKSPACE_ROOT_DESCRIPTION
+from engine.workspace import resolve_workspace_root_arg as _resolve_workspace_root
 
 _IST = ZoneInfo("Asia/Kolkata")
 
@@ -67,11 +73,6 @@ def read_and_clear(path: Path) -> str:
     return text.strip()
 
 
-_WORKSPACE_ROOT_DESCRIPTION = (
-    "Absolute path of the active workspace (as given to you in the "
-    "'Active workspace:' note earlier in this turn)."
-)
-
 _INPUT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -94,20 +95,6 @@ _INPUT_SCHEMA = {
     },
     "required": ["workspace_root", "content", "grounding"],
 }
-
-
-def _resolve_workspace_root(raw: str) -> Path | None:
-    """Same defensive check as engine/workspace_notes.py's — duplicated
-    rather than shared for the same reason given there."""
-    try:
-        resolved = Path(raw).resolve()
-    except OSError:
-        return None
-    if not is_within_known_workspace_roots(resolved):
-        return None
-    if not resolved.is_dir():
-        return None
-    return resolved
 
 
 async def _handler(args: dict[str, Any]) -> dict[str, Any]:

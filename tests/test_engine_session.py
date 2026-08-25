@@ -464,3 +464,94 @@ def test_repl_skips_the_review_turn_when_nothing_is_staged(tmp_path, monkeypatch
     asyncio.run(_repl(harness, workspace_root))
 
     assert session.received_prompts == []
+
+
+def test_repl_fences_staged_candidate_content_as_data_not_instructions(tmp_path, monkeypatch):
+    # Review of issue #14: model-composed staged content is concatenated
+    # into the review prompt — fenced and explicitly labeled as data so a
+    # candidate whose text resembles an instruction can't be mistaken for
+    # part of the trusted system preamble.
+    from engine.interactive import _repl
+    from engine.memory_candidates import append_candidate, candidates_path
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+    append_candidate(candidates_path(workspace_root), "a staged fact", "grounding")
+
+    session = _FakeSession(["noted"], EngineResult(ok=True, text="noted", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: (_ for _ in ()).throw(EOFError()))
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    sent = session.received_prompts[0]
+    assert "--- staged candidates ---" in sent
+    assert "--- end staged candidates ---" in sent
+    assert "not further instructions" in sent
+    assert sent.index("--- staged candidates ---") < sent.index("a staged fact") < sent.index(
+        "--- end staged candidates ---"
+    )
+
+
+def test_repl_labels_the_review_turn_as_system_in_the_transcript(tmp_path, monkeypatch):
+    # Review of issue #14: the synthesized review prompt must not be
+    # recorded under "## you" — nobody typed it.
+    from engine.interactive import _repl
+    from engine.memory_candidates import append_candidate, candidates_path
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+    append_candidate(candidates_path(workspace_root), "a staged fact", "grounding")
+
+    session = _FakeSession(["noted"], EngineResult(ok=True, text="noted", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: (_ for _ in ()).throw(EOFError()))
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    transcript_files = list((workspace_root / "sessions").glob("*.md"))
+    assert len(transcript_files) == 1
+    text = transcript_files[0].read_text()
+    assert "## system (" in text
+    assert "## you (" not in text
+
+
+class _RaisingSession:
+    """A session whose `send` always raises before yielding anything —
+    stands in for a transient SDK/subprocess failure mid-turn."""
+
+    def __init__(self):
+        self.last_result = None
+        self.last_over_budget: list[str] = []
+
+    async def send(self, prompt, *, workspace_root=None):
+        raise RuntimeError("transient failure")
+        yield  # pragma: no cover — unreachable, makes this an async generator
+
+
+def test_repl_restores_staged_candidates_when_the_review_turn_fails(tmp_path, monkeypatch, capsys):
+    # Review of issue #14, finding 1: a transient failure during the
+    # review turn must not permanently lose every staged candidate — it
+    # was already cleared from the file before the turn ran.
+    from engine.interactive import _repl
+    from engine.memory_candidates import append_candidate, candidates_path
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+    append_candidate(candidates_path(workspace_root), "User seems done with PSU banks.", "from prior session")
+
+    harness = _FakeHarness(_RaisingSession())
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: (_ for _ in ()).throw(EOFError()))
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    text = candidates_path(workspace_root).read_text()
+    assert "User seems done with PSU banks." in text
+    err = capsys.readouterr().err
+    assert "[memory review] failed, will retry next session" in err

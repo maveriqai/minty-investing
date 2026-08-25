@@ -109,6 +109,35 @@ def test_report_changed_files_omits_the_session_transcript_from_unmatched(tmp_pa
     assert "not matching any known skill's expected output" not in out
 
 
+def test_report_changed_files_omits_memory_candidates_from_unmatched(tmp_path, monkeypatch, capsys):
+    # workspace/memory_candidates.md (engine/memory_candidates.py, issue
+    # #14) is also engine-managed, not a skill's expected_outputs — any
+    # ordinary turn where the model calls stage_memory_candidate would
+    # otherwise print as unmatched noise (found in review of issue #14).
+    monkeypatch.setattr(interactive_module, "REPO_ROOT", tmp_path)
+    candidates_file = tmp_path / "workspace" / "memory_candidates.md"
+
+    _report_changed_files([str(candidates_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" not in out
+
+
+def test_report_changed_files_still_flags_a_stray_file_at_the_workspace_root(tmp_path, monkeypatch, capsys):
+    # Exempting memory_candidates.md must be an exact-file match, not a
+    # blanket exemption for anything directly in workspace_root — that
+    # would also hide a genuinely stray file dropped at the workspace
+    # root (found in review of issue #14).
+    monkeypatch.setattr(interactive_module, "REPO_ROOT", tmp_path)
+    stray_file = tmp_path / "workspace" / "unexpected_top_level.md"
+
+    _report_changed_files([str(stray_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" in out
+    assert str(stray_file) in out
+
+
 def test_report_changed_files_still_flags_a_stray_file_in_a_coincidentally_named_dir(
     tmp_path, monkeypatch, capsys
 ):

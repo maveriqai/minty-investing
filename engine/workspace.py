@@ -68,6 +68,26 @@ def resolve_active_workspace() -> Path:
     return WORKSPACE_ROOT
 
 
+def augment_prompt_with_workspace(prompt: str, workspace_root: Path) -> str:
+    """Tells the model exactly where the active workspace lives instead of
+    leaving it to infer/choose a path from prose — every session that
+    touches a workspace-scoped tool (`update_workspace_notes`,
+    `stage_memory_candidate`, skill scripts) needs this note, not just
+    ones that went through `engine/interactive.py`'s `_run_turn`. Shared
+    here (rather than living in `engine/interactive.py`, where it was
+    originally defined) so `engine/staged_skills.py` can apply it to a
+    stage's own prompt too, without importing `engine.interactive` and
+    creating a cycle (`interactive` -> `harnesses.claude_agent_sdk` ->
+    `staged_skill_tools` -> `staged_skills`). Found missing from stage
+    prompts in review of issue #14: a stage session nudged to call a
+    workspace-scoped tool had no reliable path to cite at all."""
+    return (
+        f"[Active workspace: {workspace_root} — already created by the "
+        f"engine, not something to create yourself. Use this exact path for "
+        f"any workspace file reads/writes this turn.]\n\n{prompt}"
+    )
+
+
 def is_within_known_workspace_roots(resolved: Path) -> bool:
     """True if `resolved` is (or is inside) the fixed `WORKSPACE_ROOT` or the
     dev-only `DEV_WORKSPACES_ROOT` sandbox — the membership test every
@@ -78,6 +98,33 @@ def is_within_known_workspace_roots(resolved: Path) -> bool:
         if resolved == root or root in resolved.parents:
             return True
     return False
+
+
+WORKSPACE_ROOT_ARG_DESCRIPTION = (
+    "Absolute path of the active workspace (as given to you in the "
+    "'Active workspace:' note earlier in this turn)."
+)
+
+
+def resolve_workspace_root_arg(raw: str) -> Path | None:
+    """None if `raw` doesn't resolve to a real directory inside a known
+    workspace root — the validation a model-supplied `workspace_root` tool
+    argument goes through before it's trusted as a write target. Shared by
+    `engine/workspace_notes.py` and `engine/memory_candidates.py` (both
+    resolve a root, then write a file under it — the same failure mode).
+    Deliberately not shared with `engine/skill_tools.py`'s own similar-
+    looking check, which validates a *subprocess cwd*, a different enough
+    failure mode to keep separate (found duplicated a third time,
+    unnecessarily, in review of issue #14)."""
+    try:
+        resolved = Path(raw).resolve()
+    except OSError:
+        return None
+    if not is_within_known_workspace_roots(resolved):
+        return None
+    if not resolved.is_dir():
+        return None
+    return resolved
 
 
 def snapshot(root: Path) -> dict[str, float]:

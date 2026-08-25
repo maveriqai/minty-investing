@@ -39,10 +39,20 @@ def new_transcript_path(workspace_root: Path, *, now: datetime | None = None) ->
     return workspace_root / "sessions" / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}.md"
 
 
-def append_turn(path: Path, prompt: str, response: str, *, now: datetime | None = None) -> None:
-    """Appends one you/minty exchange. Creates the file (and its parent
-    `sessions/` directory) with a one-time header on the first call for
-    this path, appends bare turn blocks after that.
+def append_turn(
+    path: Path, prompt: str, response: str, *, speaker: str = "you", now: datetime | None = None
+) -> None:
+    """Appends one exchange. Creates the file (and its parent `sessions/`
+    directory) with a one-time header on the first call for this path,
+    appends bare turn blocks after that.
+
+    `speaker` labels who the `prompt` half came from — "you" (default) for
+    a real, human-typed turn. `engine/interactive.py`'s `_repl` passes
+    "system" for its synthesized memory-candidate review turn, so the
+    transcript doesn't misrepresent engine-authored text as something the
+    user actually typed — this file's whole purpose is an accurate record
+    of what was asked, and a bare "## you" header on a prompt nobody typed
+    defeats that (found in review of issue #14).
 
     Every turn block carries its own full date, not just a time — a
     session left open across IST midnight would otherwise mislabel later
@@ -58,7 +68,7 @@ def append_turn(path: Path, prompt: str, response: str, *, now: datetime | None 
     with path.open("a", encoding="utf-8") as f:
         if is_new:
             f.write(f"# Minty session — started {timestamp}\n\n")
-        f.write(f"## you ({timestamp})\n\n{prompt}\n\n")
+        f.write(f"## {speaker} ({timestamp})\n\n{prompt}\n\n")
         f.write(f"## minty ({timestamp})\n\n{response}\n\n")
 
 

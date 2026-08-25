@@ -25,17 +25,12 @@ arbitrary path it invents.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
-from engine.workspace import is_within_known_workspace_roots
-
-_WORKSPACE_ROOT_DESCRIPTION = (
-    "Absolute path of the active workspace (as given to you in the "
-    "'Active workspace:' note earlier in this turn)."
-)
+from engine.workspace import WORKSPACE_ROOT_ARG_DESCRIPTION as _WORKSPACE_ROOT_DESCRIPTION
+from engine.workspace import resolve_workspace_root_arg as _resolve_workspace_root
 
 _TARGET_DESCRIPTION = (
     "Which file to update — 'notes.md' (the default; the workspace's general "
@@ -63,23 +58,6 @@ _INPUT_SCHEMA = {
     },
     "required": ["workspace_root", "content"],
 }
-
-
-def _resolve_workspace_root(raw: str) -> Path | None:
-    """None if `raw` doesn't resolve to a real directory inside a known
-    workspace root. Same defensive check as engine/skill_tools.py's
-    `_resolve_workspace_root`, duplicated rather than shared — the two
-    tools' failure modes (a subprocess cwd vs. a write target) are
-    different enough not to force a shared abstraction over yet."""
-    try:
-        resolved = Path(raw).resolve()
-    except OSError:
-        return None
-    if not is_within_known_workspace_roots(resolved):
-        return None
-    if not resolved.is_dir():
-        return None
-    return resolved
 
 
 def _resolve_target(raw: str) -> str | None:

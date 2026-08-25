@@ -232,3 +232,27 @@ def test_compose_and_save_is_a_noop_when_final_text_is_blank(tmp_path, monkeypat
     staged_skills.compose_and_save("", [], skill_name="morning-digest", workspace_root=workspace_root)
 
     assert list((workspace_root / "results").iterdir()) == []
+
+
+def test_run_staged_skill_injects_the_active_workspace_note_into_each_stage_prompt():
+    # Review of issue #14: a stage nudged by the always-on
+    # update_workspace_notes/stage_memory_candidate system-prompt
+    # instructions has no reliable workspace_root to cite unless the
+    # stage's own prompt carries the same "[Active workspace: ...]" note
+    # engine/interactive.py's _run_turn already gives every other turn.
+    from pathlib import Path
+
+    stages = [_stage("a")]
+    session = _FakeSession(["ok"])
+    harness = _FakeHarness([session])
+    workspace_root = Path("/real/workspace")
+
+    asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "SHARED BODY", stages, workspace_root=workspace_root, date="2026-08-07"
+        )
+    )
+
+    sent = session.received_prompts[0]
+    assert "[Active workspace: /real/workspace" in sent
+    assert "SHARED BODY" in sent
