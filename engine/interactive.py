@@ -64,6 +64,19 @@ def _report_changed_files(
     the turn invoked, just checks whatever changed against every loaded
     skill's declared `expected_outputs` (see engine/skills.py). A skill
     that declares nothing is silently not checked, not flagged as missing.
+
+    Raw Layer-1/Layer-2 captures (`engine/tool_capture.py` — every skill's
+    own `data/holdings_<date>.json`-style files, plus the install-wide
+    `data/account_identity.json` anchor) are never a skill's declared
+    `expected_outputs` (those all live under `results/`, never `data/` —
+    see any SKILL.md), so they'd otherwise print as "not matching any
+    known skill's expected output" every single time they change, which
+    reads as suspicious when it's actually the normal, engine-managed
+    case. Filtered out of the report entirely rather than flagged as
+    unmatched (issue #3) — recognized generically by living directly
+    under a `data/` directory, not by filename, so this covers every
+    current and future CAPTURE_SPECS entry without needing its own list
+    here.
     """
     if not changed:
         print("[no files changed this turn]")
@@ -76,7 +89,7 @@ def _report_changed_files(
             matched_files.update(matches)
             print(f"[matches {name}'s expected output — {', '.join(matches)}]")
 
-    unmatched = [f for f in changed if f not in matched_files]
+    unmatched = [f for f in changed if f not in matched_files and Path(f).parent.name != "data"]
     if unmatched:
         print(f"[other files changed, not matching any known skill's expected output — {', '.join(unmatched)}]")
 

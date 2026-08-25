@@ -11,7 +11,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import engine.skills as skills_module
-from engine.interactive import _save_composed_outputs
+from engine.interactive import _report_changed_files, _save_composed_outputs
 
 _TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
 
@@ -75,3 +75,35 @@ def test_save_composed_outputs_still_saves_a_non_staged_skill(tmp_path, monkeypa
 
     saved = results_dir / f"plain-skill_{_TODAY}.md"
     assert saved.read_text() == "the full composed brief"
+
+
+def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, capsys):
+    # data/account_identity.json (install-wide) and workspace/data/holdings_*.json
+    # (per-skill raw captures, engine/tool_capture.py) are never a skill's own
+    # expected_outputs — those always live under results/ — so printing them as
+    # "not matching any known skill's expected output" is misleading noise, not
+    # a real signal (issue #3). Filtered out generically by directory name, not
+    # by listing every known capture filename.
+    identity_file = tmp_path / "data" / "account_identity.json"
+    holdings_file = tmp_path / "workspace" / "data" / "holdings_2026-08-25.json"
+
+    _report_changed_files([str(identity_file), str(holdings_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" not in out
+
+
+def test_report_changed_files_still_reports_a_genuinely_unmatched_file(tmp_path, capsys):
+    stray_file = tmp_path / "workspace" / "results" / "unexpected.json"
+
+    _report_changed_files([str(stray_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" in out
+    assert str(stray_file) in out
+
+
+def test_report_changed_files_reports_no_files_changed(capsys):
+    _report_changed_files([], [], "workspace", date=_TODAY)
+
+    assert capsys.readouterr().out.strip() == "[no files changed this turn]"
