@@ -1,0 +1,57 @@
+"""Raw, verbatim record of a `minty` REPL session — issue #13.
+
+Audit/debug only ("what exactly did Minty tell me last Tuesday,"
+reconstructing a prior conversation verbatim), not a compounding-research
+mechanism — a raw transcript is exactly the kind of unstructured,
+re-derivable content CLAUDE.md's notes guidance says not to save to
+`workspace/notes.md`. Deliberately its own file, its own directory,
+never routed through notes.md or any skill's `expected_outputs` — see
+`docs/next-phase-plan.md` §8 for why the two are kept apart.
+
+One file per REPL process (`engine/interactive.py`'s `_repl`), named by
+the session's own start time so two sessions started back to back never
+collide. Appended to turn by turn as the conversation happens, not
+buffered and written once at exit, so a crash or Ctrl-C still leaves
+whatever was actually said, not nothing. Never used by the headless
+single-shot entrypoint (`engine/run.py`) — that path has no multi-turn
+"session" to record, just one scripted call.
+
+Already covered by the existing git-ignore/local-only rule for
+`workspace/` (`docs/next-phase-plan.md` §4) — no new privacy surface,
+same personal-financial-data sensitivity as everything else already
+written there.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def new_transcript_path(workspace_root: Path, *, now: datetime | None = None) -> Path:
+    """The one file this REPL process appends every turn to — filename
+    fixed at session start, not re-derived per turn, so a long-running
+    session doesn't fragment across midnight IST."""
+    now = now or datetime.now(_IST)
+    return workspace_root / "sessions" / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}.md"
+
+
+def append_turn(path: Path, prompt: str, response: str, *, now: datetime | None = None) -> None:
+    """Appends one you/minty exchange. Creates the file (and its parent
+    `sessions/` directory) with a date header on the first call for this
+    path, appends bare turn blocks after that."""
+    now = now or datetime.now(_IST)
+    timestamp = now.strftime("%H:%M IST")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not path.exists()
+    with path.open("a") as f:
+        if is_new:
+            f.write(f"# Minty session — {now.strftime('%Y-%m-%d')}\n\n")
+        f.write(f"## you ({timestamp})\n\n{prompt}\n\n")
+        f.write(f"## minty ({timestamp})\n\n{response}\n\n")
+
+
+__all__ = ["append_turn", "new_transcript_path"]

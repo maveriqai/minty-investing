@@ -20,6 +20,7 @@ from engine.config import build_tool_config
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
+from engine.session_transcript import append_turn, new_transcript_path
 from engine.workspace import (
     FIXED_WATCH_ROOTS,
     REPO_ROOT,
@@ -67,16 +68,18 @@ def _report_changed_files(
 
     Raw Layer-1/Layer-2 captures (`engine/tool_capture.py` — every skill's
     own `data/holdings_<date>.json`-style files, plus the install-wide
-    `data/account_identity.json` anchor) are never a skill's declared
-    `expected_outputs` (those all live under `results/`, never `data/` —
-    see any SKILL.md), so they'd otherwise print as "not matching any
-    known skill's expected output" every single time they change, which
-    reads as suspicious when it's actually the normal, engine-managed
-    case. Filtered out of the report entirely rather than flagged as
-    unmatched (issue #3) — recognized generically by living directly
-    under a `data/` directory, not by filename, so this covers every
-    current and future CAPTURE_SPECS entry without needing its own list
-    here.
+    `data/account_identity.json` anchor) and the raw session transcript
+    (`engine/session_transcript.py`, `workspace/sessions/<timestamp>.md`,
+    issue #13) are never a skill's declared `expected_outputs` (those all
+    live under `results/`, never `data/` or `sessions/` — see any
+    SKILL.md), so they'd otherwise print as "not matching any known
+    skill's expected output" every single time they change, which reads
+    as suspicious when it's actually the normal, engine-managed case.
+    Filtered out of the report entirely rather than flagged as unmatched
+    (issue #3) — recognized generically by living directly under a
+    `data/` or `sessions/` directory, not by filename, so this covers
+    every current and future CAPTURE_SPECS entry without needing its own
+    list here.
     """
     if not changed:
         print("[no files changed this turn]")
@@ -89,7 +92,9 @@ def _report_changed_files(
             matched_files.update(matches)
             print(f"[matches {name}'s expected output — {', '.join(matches)}]")
 
-    unmatched = [f for f in changed if f not in matched_files and Path(f).parent.name != "data"]
+    unmatched = [
+        f for f in changed if f not in matched_files and Path(f).parent.name not in {"data", "sessions"}
+    ]
     if unmatched:
         print(f"[other files changed, not matching any known skill's expected output — {', '.join(unmatched)}]")
 
@@ -155,6 +160,7 @@ async def _run_turn(
     *,
     workspace_root: Path | None = None,
     skill_names: list[str] | None = None,
+    transcript_path: Path | None = None,
 ) -> None:
     before = snapshot_all(FIXED_WATCH_ROOTS)
     sent = _augment_with_workspace(prompt, workspace_root) if workspace_root is not None else prompt
@@ -163,6 +169,9 @@ async def _run_turn(
         print(chunk, end="", flush=True)
         chunks.append(chunk)
     print()
+    full_text = "".join(chunks)
+    if transcript_path is not None:
+        append_turn(transcript_path, prompt, full_text)
     result = session.last_result
     if result is not None and not result.ok:
         print(f"[turn ended without success: {result.error_kind}]", file=sys.stderr)
@@ -172,7 +181,7 @@ async def _run_turn(
     changed = changed_since_all(FIXED_WATCH_ROOTS, before)
     if workspace_root is not None:
         workspace_name = _workspace_name(workspace_root)
-        _save_composed_outputs("".join(chunks), changed, skill_names or [], workspace_name=workspace_name, date=today)
+        _save_composed_outputs(full_text, changed, skill_names or [], workspace_name=workspace_name, date=today)
         changed = changed_since_all(FIXED_WATCH_ROOTS, before)
     else:
         workspace_name = None
@@ -182,6 +191,10 @@ async def _run_turn(
 async def _repl(harness: Harness, workspace_root: Path) -> int:
     tools: ToolConfig = build_tool_config()
     skill_names = tools.skills if isinstance(tools.skills, list) else []
+    # Fixed once per REPL process, not re-derived per turn — see
+    # engine/session_transcript.py's docstring for why (one file per
+    # session, not one per turn).
+    transcript_path = new_transcript_path(workspace_root)
     print("Minty — connected. Type a message, 'exit' to quit.")
     async with harness.open_session(tools) as session:
         while True:
@@ -196,7 +209,13 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
             if prompt.lower() in _EXIT_COMMANDS:
                 break
             print("minty> ", end="", flush=True)
-            await _run_turn(session, prompt, workspace_root=workspace_root, skill_names=skill_names)
+            await _run_turn(
+                session,
+                prompt,
+                workspace_root=workspace_root,
+                skill_names=skill_names,
+                transcript_path=transcript_path,
+            )
     return 0
 
 

@@ -93,6 +93,19 @@ def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, c
     assert "not matching any known skill's expected output" not in out
 
 
+def test_report_changed_files_omits_the_session_transcript_from_unmatched(tmp_path, capsys):
+    # workspace/sessions/<timestamp>.md (engine/session_transcript.py, issue
+    # #13) is also engine-managed, not a skill's expected_outputs — every
+    # turn appends to it, so without this filter it would print as
+    # unmatched noise on every single turn.
+    transcript_file = tmp_path / "workspace" / "sessions" / "2026-08-25T09-00-00.md"
+
+    _report_changed_files([str(transcript_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" not in out
+
+
 def test_report_changed_files_still_reports_a_genuinely_unmatched_file(tmp_path, capsys):
     stray_file = tmp_path / "workspace" / "results" / "unexpected.json"
 

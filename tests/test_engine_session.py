@@ -220,6 +220,27 @@ def test_run_turn_with_workspace_injects_exact_path_into_the_prompt(tmp_path, mo
     assert "not something to create yourself" in sent
 
 
+def test_run_turn_appends_the_turn_to_the_transcript_when_given_a_path(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    transcript_path = tmp_path / "workspace" / "sessions" / "2026-08-25T09-00-00.md"
+    session = _FakeSession(["Hello", " world"], EngineResult(ok=True, text="Hello world", error_kind=None, raw=None))
+
+    asyncio.run(_run_turn(session, "hi", transcript_path=transcript_path))
+
+    text = transcript_path.read_text()
+    assert "hi" in text
+    assert "Hello world" in text
+
+
+def test_run_turn_does_not_write_a_transcript_when_no_path_given(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    asyncio.run(_run_turn(session, "hi"))
+
+    assert not (tmp_path / "workspace" / "sessions").exists()
+
+
 def test_run_turn_reports_no_files_changed_when_nothing_changed(tmp_path, monkeypatch, capsys):
     workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
     workspace_root = workspaces_dir / "test-scan"
