@@ -77,3 +77,17 @@ def test_append_turn_preserves_multiline_content_verbatim(tmp_path):
     text = path.read_text()
     assert "multi\nline\nprompt" in text
     assert response in text
+
+
+def test_append_turn_writes_non_ascii_content_as_utf8(tmp_path):
+    # The write must be explicit UTF-8, not whatever the platform default
+    # happens to be — ₹ and Devanagari text are routine in a real response
+    # (issue #13 review).
+    path = tmp_path / "sessions" / "2026-08-25T14-32-10.md"
+    response = "आपके पास ₹1,234 cr का RELIANCE है।"
+
+    append_turn(path, "मेरे पास क्या है?", response, now=datetime(2026, 8, 25, 9, 0, 0, tzinfo=_IST))
+
+    text = path.read_text(encoding="utf-8")
+    assert response in text
+    assert "₹" in text

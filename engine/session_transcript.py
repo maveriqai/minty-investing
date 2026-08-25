@@ -52,7 +52,10 @@ def append_turn(path: Path, prompt: str, response: str, *, now: datetime | None 
     timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()
-    with path.open("a") as f:
+    # Explicit, not the platform default: transcripts routinely carry ₹ and
+    # Devanagari text, and the default encoding is locale-dependent, not
+    # guaranteed UTF-8 on every platform (found in review of #13).
+    with path.open("a", encoding="utf-8") as f:
         if is_new:
             f.write(f"# Minty session — started {timestamp}\n\n")
         f.write(f"## you ({timestamp})\n\n{prompt}\n\n")
