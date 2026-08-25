@@ -152,12 +152,14 @@ def _build_identity_record_hook(state: IdentityGuardState):
     unparseable response never counts as a mismatch either way.
 
     Prints one `[identity]` diagnostic per unparseable response instead of
-    staying silent — `engine/kite_identity.py`'s own docstring admits the
-    real `tool_response` shape isn't live-verified yet, so a permanently
-    wrong parsing guess would otherwise leave the whole mismatch check
-    quietly inert with nothing anywhere to reveal that, the same
-    audit-visible-but-non-blocking spirit as `engine/tool_budget.py`'s
-    `[budget] ...` lines."""
+    staying silent — the parsed shape is live-confirmed (2026-08-25, see
+    `engine/kite_identity.py`'s `user_id_from_get_profile_response`
+    docstring), but nothing guarantees it stays that way forever, so this
+    stands as an ongoing canary rather than being removed now that it's
+    proven once: a future shape change would otherwise leave the whole
+    mismatch check quietly inert with nothing anywhere to reveal that,
+    the same audit-visible-but-non-blocking spirit as
+    `engine/tool_budget.py`'s `[budget] ...` lines."""
 
     async def record_profile_identity(input_data: PostToolUseHookInput, tool_use_id: str | None, context):
         if tool_name_suffix(input_data.get("tool_name", "")) == "get_profile":

@@ -23,6 +23,40 @@ def test_user_id_from_data_as_content_block_list():
     assert user_id_from_get_profile_response(tool_response) == "QK0438"
 
 
+def test_user_id_from_a_real_posttooluse_tool_response():
+    # The actual shape a real PostToolUse hook's tool_response takes for
+    # get_profile — live-captured 2026-08-25 via a real ad hoc "what are
+    # my holdings" run (issue #19): a plain JSON *string* (not a
+    # pre-parsed dict) containing the same envelope every Layer 2 tool
+    # returns. This was the actual bug: the parser originally rejected
+    # any non-dict tool_response outright, so this exact shape produced
+    # a silent "[identity] couldn't parse..." diagnostic in production
+    # until fixed. Redacted account details, real structure.
+    profile_text = json.dumps(
+        {
+            "user_id": "QK0438",
+            "user_name": "Test User",
+            "user_shortname": "Test",
+            "avatar_url": "",
+            "user_type": "individual/res_no_nn",
+            "email": "test@example.com",
+            "broker": "ZERODHA",
+            "meta": {"demat_consent": "physical"},
+            "products": ["CNC", "NRML", "MIS", "BO", "CO"],
+            "order_types": ["MARKET", "LIMIT", "SL", "SL-M"],
+            "exchanges": ["MF", "BFO", "BSE", "NFO", "NSE"],
+        }
+    )
+    tool_response = json.dumps(
+        {
+            "source": "kite",
+            "as_of": "2026-08-25 13:51 IST",
+            "data": [{"type": "text", "text": profile_text, "annotations": None, "meta": None}],
+        }
+    )
+    assert user_id_from_get_profile_response(tool_response) == "QK0438"
+
+
 def test_user_id_from_raw_mcp_content_envelope():
     # A plausible alternative shape: tool_response carries the raw MCP
     # CallToolResult ({"content": [...]}), with our own envelope JSON

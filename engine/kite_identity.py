@@ -24,17 +24,17 @@ Deliberately narrow scope, and deliberately fail-open, not fail-closed:
 - Only denies on a *confirmed* mismatch (a successfully parsed live
   `user_id` that disagrees with a successfully parsed anchor). It does
   *not* deny merely because no `get_profile` call has happened yet this
-  session — that would make correctness here depend on this module
-  correctly parsing a live `tool_response` whose exact shape isn't pinned
-  down by any published schema (`PostToolUse` hooks are dispatched by the
-  `claude` CLI subprocess itself, outside this repo, and this hasn't been
-  live-verified against a real Kite session yet). A wrong guess about
-  that shape would otherwise permanently block every holdings fetch for
-  every user — a far worse outage than the rare account-mismatch this
-  module exists to catch. Closing that "was a check even attempted"
-  coverage gap (issue #6) stays on the softer, already-shipped
-  system-prompt nudge until this has been live-verified and can safely be
-  hardened.
+  session — even though the `tool_response` shape this depends on is now
+  live-verified (2026-08-25, a real ad hoc "what are my holdings" run —
+  see `user_id_from_get_profile_response`'s docstring for the confirmed
+  shape), hardening the "unchecked" branch to a hard deny is a separate
+  design decision with its own real cost: it would add a mandatory
+  extra `get_profile` round trip to every ad hoc holdings/positions
+  query, not just protect against the rare account-mismatch case. Left
+  as a deliberate follow-up, not done as a side effect of the shape now
+  being confirmed. Closing that "was a check even attempted" coverage
+  gap (issue #6) stays on the softer, already-shipped system-prompt
+  nudge for now.
 - Only gates `get_holdings`/`get_positions` — the two kite_gateway tools
   that either persist to disk (`get_holdings`, the one kite_gateway tool
   `CAPTURE_SPECS` writes to `workspace/data/`) or surface real-money
@@ -79,8 +79,21 @@ def user_id_from_get_profile_response(tool_response: Any) -> str | None:
     """Best-effort `user_id` extraction from a `PostToolUse` hook's raw
     `tool_response` for a `get_profile` call. Returns None on any shape
     this doesn't recognize — callers must treat that as "couldn't verify,
-    leave state as-is", never as a mismatch. NOT YET LIVE-VERIFIED; see
-    this module's own docstring."""
+    leave state as-is", never as a mismatch.
+
+    Live-confirmed 2026-08-25: `tool_response` for an MCP tool call is a
+    plain JSON **string** — the same `{"source", "as_of", "data"}`
+    envelope every Layer 2 tool returns, serialized to text, not a
+    pre-parsed dict — e.g. `'{"source":"kite","as_of":"...",
+    "data":[{"type":"text","text":"{\\"user_id\\":...}",...}]}'`. The
+    `str`/`dict` shapes below are both handled defensively regardless,
+    since nothing guarantees every MCP server or SDK version serializes
+    this identically."""
+    if isinstance(tool_response, str):
+        try:
+            tool_response = json.loads(tool_response)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(tool_response, dict):
         return None
     if "data" in tool_response:
@@ -141,12 +154,14 @@ class IdentityGuardState:
         — the caller (`_build_identity_record_hook` in
         `engine/harnesses/claude_agent_sdk.py`) uses this to print a
         diagnostic, mirroring `engine/tool_budget.py`'s own
-        audit-only-but-visible pattern: this module's own docstring admits
-        the real `tool_response` shape isn't live-verified yet, so a
-        silent parse failure here would otherwise mean the whole mismatch
-        check is quietly inert with nothing anywhere to reveal that. True
-        for every other outcome, including the normal "no anchor to
-        compare against yet" case, which is expected, not a failure."""
+        audit-only-but-visible pattern: the parsed shape is now
+        live-confirmed (see `user_id_from_get_profile_response`'s
+        docstring), but nothing guarantees it stays that way forever (a
+        future Kite/SDK response-shape change), so this stays as a
+        standing canary rather than being removed now that it's proven
+        once. True for every other outcome, including the normal "no
+        anchor to compare against yet" case, which is expected, not a
+        failure."""
         if self.mismatch:
             return True
         user_id = user_id_from_get_profile_response(tool_response)
