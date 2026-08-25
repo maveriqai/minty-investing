@@ -76,10 +76,17 @@ def _report_changed_files(
     skill's expected output" every single time they change, which reads
     as suspicious when it's actually the normal, engine-managed case.
     Filtered out of the report entirely rather than flagged as unmatched
-    (issue #3) — recognized generically by living directly under a
-    `data/` or `sessions/` directory, not by filename, so this covers
-    every current and future CAPTURE_SPECS entry without needing its own
-    list here.
+    (issue #3).
+
+    Anchored to the exact known capture directories (`REPO_ROOT/data`,
+    plus this turn's own active `<workspace_root>/data` and
+    `<workspace_root>/sessions`) rather than any file whose parent is
+    merely *named* "data" or "sessions" — a bare basename match would
+    also swallow a genuinely stray file that happened to land in a
+    same-named directory elsewhere under a watched root (e.g. a skill
+    bug writing into `results/<skill>/sessions/`), hiding exactly the
+    kind of surprise this report exists to surface (found in review of
+    #13).
     """
     if not changed:
         print("[no files changed this turn]")
@@ -92,9 +99,13 @@ def _report_changed_files(
             matched_files.update(matches)
             print(f"[matches {name}'s expected output — {', '.join(matches)}]")
 
-    unmatched = [
-        f for f in changed if f not in matched_files and Path(f).parent.name not in {"data", "sessions"}
-    ]
+    capture_dirs = {REPO_ROOT / "data"}
+    if workspace_name is not None:
+        workspace_root = REPO_ROOT / workspace_name
+        capture_dirs.add(workspace_root / "data")
+        capture_dirs.add(workspace_root / "sessions")
+
+    unmatched = [f for f in changed if f not in matched_files and Path(f).parent not in capture_dirs]
     if unmatched:
         print(f"[other files changed, not matching any known skill's expected output — {', '.join(unmatched)}]")
 
@@ -170,11 +181,22 @@ async def _run_turn(
         chunks.append(chunk)
     print()
     full_text = "".join(chunks)
-    if transcript_path is not None:
-        append_turn(transcript_path, prompt, full_text)
     result = session.last_result
     if result is not None and not result.ok:
         print(f"[turn ended without success: {result.error_kind}]", file=sys.stderr)
+        # The transcript must say so too, not just stderr — otherwise a
+        # failed turn (empty/partial full_text) reads back as a normal,
+        # if terse, successful answer (found in review of #13).
+        transcript_text = f"{full_text}\n\n[turn ended without success: {result.error_kind}]".strip()
+    else:
+        transcript_text = full_text
+    if transcript_path is not None:
+        try:
+            append_turn(transcript_path, prompt, transcript_text)
+        except OSError as exc:
+            # Audit-only side effect — must never take the primary REPL
+            # down with it (found in review of #13).
+            print(f"[transcript] couldn't write to {transcript_path}: {exc}", file=sys.stderr)
     for line in getattr(session, "last_over_budget", []):
         print(f"[budget] {line}")
     today = datetime.now(_IST).date().isoformat()

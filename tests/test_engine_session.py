@@ -232,6 +232,40 @@ def test_run_turn_appends_the_turn_to_the_transcript_when_given_a_path(tmp_path,
     assert "Hello world" in text
 
 
+def test_run_turn_marks_a_failed_turn_in_the_transcript_instead_of_recording_it_as_success(
+    tmp_path, monkeypatch, capsys
+):
+    # A failed turn yields no text (see test_claude_session_records_failure_result_and_yields_no_text),
+    # so without an explicit marker the transcript would show a blank "##
+    # minty" block indistinguishable from a real, if terse, answer (issue
+    # #13 review).
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    transcript_path = tmp_path / "workspace" / "sessions" / "2026-08-25T09-00-00.md"
+    session = _FakeSession([], EngineResult(ok=False, text=None, error_kind="session_limit", raw=None))
+
+    asyncio.run(_run_turn(session, "hi", transcript_path=transcript_path))
+
+    text = transcript_path.read_text()
+    assert "turn ended without success: session_limit" in text
+
+
+def test_run_turn_does_not_crash_when_the_transcript_write_fails(tmp_path, monkeypatch, capsys):
+    # An audit-only side effect failing (disk full, permissions) must not
+    # take the primary REPL down with it (issue #13 review). Simulated by
+    # pointing transcript_path at a location whose parent can never be
+    # created — a file standing where a directory needs to go.
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    blocking_file = tmp_path / "workspace" / "sessions"
+    blocking_file.parent.mkdir(parents=True)
+    blocking_file.write_text("not a directory")
+    transcript_path = blocking_file / "2026-08-25T09-00-00.md"
+    session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
+
+    asyncio.run(_run_turn(session, "hi", transcript_path=transcript_path))
+
+    assert "[transcript] couldn't write to" in capsys.readouterr().err
+
+
 def test_run_turn_does_not_write_a_transcript_when_no_path_given(tmp_path, monkeypatch, capsys):
     _isolate_watch_roots(tmp_path, monkeypatch)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))

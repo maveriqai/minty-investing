@@ -10,6 +10,7 @@ correct file with a worse one (issue #15).
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import engine.interactive as interactive_module
 import engine.skills as skills_module
 from engine.interactive import _report_changed_files, _save_composed_outputs
 
@@ -77,13 +78,14 @@ def test_save_composed_outputs_still_saves_a_non_staged_skill(tmp_path, monkeypa
     assert saved.read_text() == "the full composed brief"
 
 
-def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, capsys):
+def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, monkeypatch, capsys):
     # data/account_identity.json (install-wide) and workspace/data/holdings_*.json
     # (per-skill raw captures, engine/tool_capture.py) are never a skill's own
     # expected_outputs — those always live under results/ — so printing them as
     # "not matching any known skill's expected output" is misleading noise, not
-    # a real signal (issue #3). Filtered out generically by directory name, not
-    # by listing every known capture filename.
+    # a real signal (issue #3). Filtered out by the exact known capture dirs,
+    # anchored to REPO_ROOT/workspace_root, not by directory name alone.
+    monkeypatch.setattr(interactive_module, "REPO_ROOT", tmp_path)
     identity_file = tmp_path / "data" / "account_identity.json"
     holdings_file = tmp_path / "workspace" / "data" / "holdings_2026-08-25.json"
 
@@ -93,17 +95,37 @@ def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, c
     assert "not matching any known skill's expected output" not in out
 
 
-def test_report_changed_files_omits_the_session_transcript_from_unmatched(tmp_path, capsys):
+def test_report_changed_files_omits_the_session_transcript_from_unmatched(tmp_path, monkeypatch, capsys):
     # workspace/sessions/<timestamp>.md (engine/session_transcript.py, issue
     # #13) is also engine-managed, not a skill's expected_outputs — every
     # turn appends to it, so without this filter it would print as
     # unmatched noise on every single turn.
+    monkeypatch.setattr(interactive_module, "REPO_ROOT", tmp_path)
     transcript_file = tmp_path / "workspace" / "sessions" / "2026-08-25T09-00-00.md"
 
     _report_changed_files([str(transcript_file)], [], "workspace", date=_TODAY)
 
     out = capsys.readouterr().out
     assert "not matching any known skill's expected output" not in out
+
+
+def test_report_changed_files_still_flags_a_stray_file_in_a_coincidentally_named_dir(
+    tmp_path, monkeypatch, capsys
+):
+    # A file landing in *some* directory literally named "sessions" that
+    # isn't the actual <workspace_root>/sessions capture location (e.g. a
+    # skill bug writing into results/some-skill/sessions/) must still be
+    # flagged as a genuine surprise, not silently hidden just because its
+    # parent directory happens to share a name with the real capture dir
+    # (issue #13 review — the filter must be anchored, not name-only).
+    monkeypatch.setattr(interactive_module, "REPO_ROOT", tmp_path)
+    stray_file = tmp_path / "workspace" / "results" / "some-skill" / "sessions" / "stray.json"
+
+    _report_changed_files([str(stray_file)], [], "workspace", date=_TODAY)
+
+    out = capsys.readouterr().out
+    assert "not matching any known skill's expected output" in out
+    assert str(stray_file) in out
 
 
 def test_report_changed_files_still_reports_a_genuinely_unmatched_file(tmp_path, capsys):

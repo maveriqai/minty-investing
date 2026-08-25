@@ -41,15 +41,20 @@ def new_transcript_path(workspace_root: Path, *, now: datetime | None = None) ->
 
 def append_turn(path: Path, prompt: str, response: str, *, now: datetime | None = None) -> None:
     """Appends one you/minty exchange. Creates the file (and its parent
-    `sessions/` directory) with a date header on the first call for this
-    path, appends bare turn blocks after that."""
+    `sessions/` directory) with a one-time header on the first call for
+    this path, appends bare turn blocks after that.
+
+    Every turn block carries its own full date, not just a time — a
+    session left open across IST midnight would otherwise mislabel later
+    turns under the header's start-of-session date, with nothing in the
+    file to catch it (found in review of #13)."""
     now = now or datetime.now(_IST)
-    timestamp = now.strftime("%H:%M IST")
+    timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()
     with path.open("a") as f:
         if is_new:
-            f.write(f"# Minty session — {now.strftime('%Y-%m-%d')}\n\n")
+            f.write(f"# Minty session — started {timestamp}\n\n")
         f.write(f"## you ({timestamp})\n\n{prompt}\n\n")
         f.write(f"## minty ({timestamp})\n\n{response}\n\n")
 
