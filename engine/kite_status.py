@@ -84,7 +84,12 @@ def anchor_user_id() -> str | None:
                 return None
             data = json.loads(text)
         return str(data["user_id"])
-    except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError):
+    except (FileNotFoundError, KeyError, TypeError, ValueError):
+        # ValueError, not just json.JSONDecodeError: `read_text()` on a file
+        # truncated mid-write (tool_capture.py's write is non-atomic) can
+        # raise UnicodeDecodeError before json.loads ever runs — both it and
+        # JSONDecodeError are ValueError subclasses, so this catches both
+        # without listing them separately.
         return None
 
 

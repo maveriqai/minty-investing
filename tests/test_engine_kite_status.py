@@ -191,3 +191,21 @@ def test_falls_through_to_not_connected_on_corrupt_identity_file(tmp_path, monke
     line = kite_connection_status_line(workspace_root)
 
     assert line.startswith("Zerodha not connected yet")
+
+
+def test_falls_through_to_not_connected_on_truncated_utf8(tmp_path, monkeypatch):
+    # A process killed mid-write (tool_capture.py's write is non-atomic)
+    # can leave a file truncated mid-codepoint — read_text() then raises
+    # UnicodeDecodeError before json.loads ever runs. Must degrade the
+    # same as any other corruption, not crash (found in review of #19's
+    # PostToolUse hook, which now calls this on every get_profile call).
+    _patch_repo_root(monkeypatch, tmp_path)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "account_identity.json").write_bytes(b'{"source": "kite", "data": {"user_id": "AB\xe2\x82"')
+    workspace_root = tmp_path / "workspace"
+    _write_holdings(workspace_root, datetime.now(_IST).date())
+
+    line = kite_connection_status_line(workspace_root)
+
+    assert line.startswith("Zerodha not connected yet")
