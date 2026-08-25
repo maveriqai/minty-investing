@@ -354,7 +354,13 @@ def _tool_result_text(content: Any) -> str | None:
     """A `ToolResultBlock.content` is `str | list[dict] | None` — flattens the
     list-of-content-blocks shape (`[{"type": "text", "text": "..."}]`) down
     to the same plain text a `str` content already is. None if there's no
-    text content to capture (e.g. an image-only or empty result)."""
+    text content to capture (e.g. an image-only or empty result).
+
+    Joins *all* matching text blocks, unlike the similarly-shaped filters in
+    `engine/kite_identity.py` and `engine/kite_status.py` (which take only
+    the first block) — this one is archiving arbitrary tool output that
+    could legitimately span multiple blocks, not extracting a single JSON
+    envelope. Deliberate divergence, not drift — see issue #20."""
     if content is None:
         return None
     if isinstance(content, str):

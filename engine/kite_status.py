@@ -71,7 +71,13 @@ def anchor_user_id() -> str | None:
     Public (not `_`-prefixed) so `engine/kite_identity.py`'s mismatch
     check (issue #19) can reuse this exact anchor-reading logic instead of
     duplicating it — the only caller inside this module is
-    `kite_connection_status_line` below."""
+    `kite_connection_status_line` below.
+
+    Takes only the *first* matching text block, same reasoning as
+    `kite_identity.py`'s `_user_id_from_data` (extracting one JSON
+    envelope, not archiving arbitrary text) — unlike
+    `claude_agent_sdk.py`'s `_tool_result_text`, which joins all blocks.
+    Deliberate divergence, not drift — see issue #20."""
     try:
         envelope = json.loads(ACCOUNT_IDENTITY_FILE.read_text())
         data = envelope["data"]

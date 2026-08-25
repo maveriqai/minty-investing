@@ -57,7 +57,13 @@ def _user_id_from_data(data: Any) -> str | None:
     """Same "flat dict vs. list-of-content-blocks" ambiguity
     `kite_status.anchor_user_id` handles for the anchor file — a live
     `get_profile` response can take either shape too (see that function's
-    docstring for the live-confirmed reason)."""
+    docstring for the live-confirmed reason).
+
+    Takes only the *first* matching text block, unlike
+    `claude_agent_sdk.py`'s `_tool_result_text` (which joins all of them) —
+    this is extracting a single JSON envelope, and joining multiple JSON
+    fragments together would almost certainly break `json.loads` anyway.
+    Deliberate divergence, not drift — see issue #20."""
     if isinstance(data, list):
         text = next(
             (block.get("text") for block in data if isinstance(block, dict) and block.get("type") == "text"),
