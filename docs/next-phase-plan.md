@@ -612,25 +612,34 @@ wrong:
      when the user explicitly asks Minty to remember/note something, it's
      saved immediately, same tool, same allow-listed targets. Zero
      pollution risk since it's user-initiated, not an automated guess.
-  2. **Post-turn candidate extraction** (not yet built) — after any turn,
-     an engine-level check for whether something durable happened,
-     grounded in that turn's own prompt/response and whatever it captured
-     to `workspace/data/` this turn (same diff `_report_changed_files`
-     already computes). Writes a *candidate* to a new staging file, not
-     notes.md directly — this is the piece that's still an automated
-     judgment call, so it stays contained to low-stakes staging rather
-     than a permanent file.
-  3. **Session-start review** (not yet built) — next REPL start, unreviewed
-     candidates from (2) are shown with their grounding (referencing the
-     `workspace/sessions/<timestamp>.md` transcript, issue #13, and any
-     backing data file) for confirm/discard; confirmed ones go through
-     `update_workspace_notes`, the queue clears either way. This is the
-     human gate that keeps notes.md hand-curated even though (2)'s
-     extraction step isn't deterministic.
+  2. **Post-turn candidate extraction** (built) — a new `stage_memory_candidate`
+     tool (`engine/memory_candidates.py`), plus its own always-on
+     `_MEMORY_CANDIDATE_SYSTEM_PROMPT`, lets the model flag something
+     durable it noticed this turn without the user explicitly asking it
+     to remember — a one-line draft plus the model's own short account of
+     what grounds it (a data file, or "from this turn's discussion").
+     Deliberately reuses the same turn rather than a second LLM call: an
+     engine-driven background classifier call would need its own isolated
+     system prompt/tool surface to avoid leaking the Kite-login/remember
+     instructions into an unrelated task, real added architecture for a
+     judgment call the model already has full context for right after
+     answering. Writes to `workspace/memory_candidates.md`, never
+     notes.md directly — the piece that's still an automated guess, kept
+     to low-stakes staging.
+  3. **Session-start review** (built) — `engine/interactive.py`'s `_repl`
+     reads and clears `memory_candidates.md` at the start of every
+     session; if anything's staged, it's sent as a synthesized first turn
+     asking the model to present it to the user and only call
+     `update_workspace_notes` for what they confirm. The staging file is
+     cleared the moment it's handed to that turn, not after the user
+     actually answers — an accepted, low-stakes crash-window risk (see
+     `engine/memory_candidates.py`'s docstring), same character as
+     issue #13's accepted same-second-collision risk.
 
-  (2) and (3) are one coupled unit — no point building the noisier
-  extraction step without the review gate that makes it safe — sequenced
-  next once (1) has had some real use.
+  Live-verified end to end 2026-08-25: an incidental preference mentioned
+  mid-turn ("by the way, I'm avoiding stocks with promoter pledge above
+  20%") was staged, not written directly; the next session surfaced it,
+  the user confirmed, and it landed in notes.md under `## Preferences`.
 
 Not sequenced into §6 — flagged here so the distinction isn't lost before
 it's picked up.
