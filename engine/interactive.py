@@ -20,6 +20,7 @@ from engine.config import build_tool_config
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
+from engine.memory_candidates import candidates_path, read_and_clear
 from engine.session_transcript import append_turn, new_transcript_path
 from engine.workspace import (
     FIXED_WATCH_ROOTS,
@@ -219,6 +220,29 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
     transcript_path = new_transcript_path(workspace_root)
     print("Minty — connected. Type a message, 'exit' to quit.")
     async with harness.open_session(tools) as session:
+        # Issue #14, piece 3 — anything staged by stage_memory_candidate
+        # (this session or an earlier one that never got reviewed) is
+        # cleared the moment it's handed off here, not after the user
+        # actually confirms/discards — see engine/memory_candidates.py's
+        # docstring for the accepted crash-before-review risk that trades
+        # off against.
+        pending_candidates = read_and_clear(candidates_path(workspace_root))
+        if pending_candidates:
+            review_prompt = (
+                "[System: the memory candidates below were staged in a previous "
+                "session and haven't been reviewed yet. Present them to the "
+                "user, ask which (if any) to keep, and only call "
+                "update_workspace_notes for the ones they confirm — don't write "
+                "anything without their say-so.]\n\n" + pending_candidates
+            )
+            print("minty> ", end="", flush=True)
+            await _run_turn(
+                session,
+                review_prompt,
+                workspace_root=workspace_root,
+                skill_names=skill_names,
+                transcript_path=transcript_path,
+            )
         while True:
             try:
                 prompt = await asyncio.to_thread(input, "you> ")

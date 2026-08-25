@@ -70,6 +70,7 @@ from engine import skills
 from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
+from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
 from engine.sources_footer import build_footer
 from engine.staged_skill_tools import (
@@ -82,6 +83,7 @@ from engine.workspace_notes import build_workspace_notes_server
 
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
+_MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
 
 # vision.md §8's own requirement: state the read-only guarantee inline, at
 # the moment a user is asked to connect their account, not buried in a docs
@@ -120,11 +122,12 @@ _KITE_LOGIN_SYSTEM_PROMPT = (
 # turn. Same shape as the Kite-login prompt above: a behavior that has to
 # work whether or not any skill matched this turn, so it belongs in
 # `system_prompt`, not a skill file. Deliberately narrow — only the
-# user's own explicit "remember/note/save this" triggers it; this is not
-# the post-turn automatic extraction docs/next-phase-plan.md §8 also
-# discusses, which is unbuilt and would need its own, much more cautious
-# design (an automated judgment call risks polluting a file CLAUDE.md
-# wants small and hand-curated).
+# user's own explicit "remember/note/save this" triggers it. The lower-
+# confidence sibling case — something durable surfaces without the user
+# framing it that way — is _MEMORY_CANDIDATE_SYSTEM_PROMPT below, which
+# deliberately does NOT write notes.md directly (see
+# engine/memory_candidates.py's module docstring for why that's kept to a
+# staged, human-reviewed queue instead).
 _REMEMBER_SYSTEM_PROMPT = (
     "If the user explicitly asks you to remember, note, or save something "
     "for later — in any turn, whether or not a skill is running — call "
@@ -136,7 +139,34 @@ _REMEMBER_SYSTEM_PROMPT = (
     "calling the tool."
 )
 
-_SYSTEM_PROMPT = f"{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
+# Issue #14, piece 2. Separate tool, separate instruction from the one
+# above on purpose: this is an uncertain judgment call (was this actually
+# durable, or just this turn's context?), so it's routed to a staging
+# file via `stage_memory_candidate`, never straight to notes.md — the
+# session-start review (engine/interactive.py's `_repl`) is the only path
+# from there into `update_workspace_notes`. Written as a plain-text
+# instruction rather than a deterministic engine-side check because
+# there's no deterministic way to tell "durable preference" from "one-off
+# context" — that judgment has to happen somewhere, and it belongs to the
+# model that just had the actual conversation, not a keyword heuristic.
+_MEMORY_CANDIDATE_SYSTEM_PROMPT = (
+    "Separately: if something durable came up this turn that the user did "
+    "NOT explicitly ask you to remember — a preference mentioned in "
+    "passing, an open thread, a decision worth tracking — call "
+    "stage_memory_candidate with a one-line draft and a short note on what "
+    "grounds it. Use your judgment about what counts as durable: skip "
+    "one-off, point-in-time content (a price, a single day's number, "
+    "anything that'll be stale next turn) — same rule notes.md itself "
+    "follows. When genuinely unsure whether something is durable, stage "
+    "it anyway; a person reviews every staged candidate before anything "
+    "reaches notes.md, so the cost of staging something that turns out "
+    "not to matter is low. Don't stage the same thing update_workspace_notes "
+    "already saved this turn."
+)
+
+_SYSTEM_PROMPT = (
+    f"{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}"
+)
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
 # old repo, but a genuine session-limit *hit* (an error_during_execution
@@ -284,6 +314,8 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     # workspace uses the same one notes.md convention (docs/vision.md's
     # workspace tier), so there's no per-skill declaration to gate this on.
     mcp_servers[_WORKSPACE_NOTES_SERVER_NAME] = build_workspace_notes_server()
+    # Same unconditional treatment, same reason — issue #14 piece 2.
+    mcp_servers[_MEMORY_CANDIDATES_SERVER_NAME] = build_memory_candidate_server()
     if tools.include_staged_tools and staged_skill_names:
         staged_workflows_server = build_staged_workflow_tools_server(staged_skill_names, tools)
         if staged_workflows_server is not None:

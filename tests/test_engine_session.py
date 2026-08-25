@@ -403,3 +403,64 @@ def test_run_turn_does_not_save_md_output_when_json_output_did_not_change(tmp_pa
 
     assert list((workspace_root / "results").iterdir()) == []
     assert "[engine saved" not in capsys.readouterr().out
+
+
+class _FakeHarness:
+    """Stands in for `Harness` — `open_session` yields the given
+    `_FakeSession` directly, no real client/connection involved."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def open_session(self, tools):
+        return self
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+def test_repl_surfaces_pending_memory_candidates_as_the_first_turn(tmp_path, monkeypatch):
+    from engine.interactive import _repl
+    from engine.memory_candidates import append_candidate, candidates_path
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+    append_candidate(candidates_path(workspace_root), "User seems done with PSU banks.", "from prior session")
+
+    session = _FakeSession(["noted"], EngineResult(ok=True, text="noted", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    # No follow-up turn — the REPL loop's own input() call hits EOF right
+    # after the synthesized review turn, ending the session.
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: (_ for _ in ()).throw(EOFError()))
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert len(session.received_prompts) == 1
+    sent = session.received_prompts[0]
+    assert "User seems done with PSU banks." in sent
+    assert "haven't been reviewed yet" in sent
+    # Cleared as soon as it's handed to the turn — see
+    # engine/memory_candidates.py's docstring for why.
+    assert candidates_path(workspace_root).read_text() == ""
+
+
+def test_repl_skips_the_review_turn_when_nothing_is_staged(tmp_path, monkeypatch):
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession([], EngineResult(ok=True, text="", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    monkeypatch.setattr("builtins.input", lambda *_args, **_kwargs: (_ for _ in ()).throw(EOFError()))
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert session.received_prompts == []

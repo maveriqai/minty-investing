@@ -25,12 +25,14 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
-    # workspace_notes is always added (unlike skill_scripts, which is
-    # conditional) — see cas._build_options — so the guardrail's own
-    # denied server list must include it too.
-    expected = tools.guardrail.denied_tool_names([*FAKE_MCP_SERVERS.keys(), "workspace_notes"])
+    # workspace_notes and memory_candidates are always added (unlike
+    # skill_scripts, which is conditional) — see cas._build_options — so
+    # the guardrail's own denied server list must include both too.
+    expected = tools.guardrail.denied_tool_names(
+        [*FAKE_MCP_SERVERS.keys(), "workspace_notes", "memory_candidates"]
+    )
     assert set(options.disallowed_tools) == expected
-    assert len(expected) == 3 * len(ORDER_TOOL_NAMES)
+    assert len(expected) == 4 * len(ORDER_TOOL_NAMES)
 
 
 def test_build_options_passes_mcp_servers_and_skills_through_unchanged():
@@ -140,6 +142,16 @@ def test_build_options_always_adds_workspace_notes_server():
     assert "workspace_notes" in options.mcp_servers
 
 
+def test_build_options_always_adds_memory_candidates_server():
+    # Same unconditional treatment as workspace_notes, same reason —
+    # issue #14 piece 2's stage_memory_candidate must be callable
+    # regardless of which (if any) skill is configured.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+
+    assert "memory_candidates" in options.mcp_servers
+
+
 def test_build_options_defaults_leave_tools_and_buffer_size_unset():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
@@ -195,6 +207,16 @@ def test_build_options_sets_explicit_remember_system_prompt():
     options = cas._build_options(tools)
     assert cas._REMEMBER_SYSTEM_PROMPT in options.system_prompt
     assert "update_workspace_notes" in cas._REMEMBER_SYSTEM_PROMPT
+
+
+def test_build_options_sets_memory_candidate_system_prompt():
+    # Issue #14 piece 2 — the lower-confidence sibling of the explicit
+    # "remember this" prompt: routes to staging (stage_memory_candidate),
+    # never straight to notes.md.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._MEMORY_CANDIDATE_SYSTEM_PROMPT in options.system_prompt
+    assert "stage_memory_candidate" in cas._MEMORY_CANDIDATE_SYSTEM_PROMPT
 
 
 def test_build_options_wires_a_pretooluse_hook():
