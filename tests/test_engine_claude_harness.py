@@ -532,7 +532,11 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
         "india_macro",
         "india_news",
     }
-    assert tools.builtin_tools == ["Read", "Write", "Bash"]
+    # No Bash (issue #25) — every deterministic-script tool already shells
+    # out server-side (engine/skill_tools.py), so Bash was never load-bearing
+    # for the designed skill flow; its one real use bypassed nse_fetch.py's
+    # governed path entirely, with no scoping ever actually enforced.
+    assert tools.builtin_tools == ["Read", "Write"]
     # Default 1MB SDK buffer crashed live on a real Layer 2 tool response
     # while porting red-flag-scan — see engine/config.py's _MAX_BUFFER_SIZE.
     assert tools.max_buffer_size == 10_000_000

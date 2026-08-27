@@ -47,7 +47,9 @@ permissions, time-limited.
 `mcp/`, single-file `server.py` using `FastMCP`, tools registered
 explicitly at the bottom: `india_price` (quotes/OHLCV/fundamentals via
 yfinance), `india_filings` (announcements, shareholding, FII/DII, NSE
-surveillance), `india_macro` (policy rates, exchange calendar),
+surveillance, and — since issue #25 — fetching/extracting an actual filed
+document's text, the governed replacement for the raw Bash+curl the model
+was reaching for), `india_macro` (policy rates, exchange calendar),
 `india_news` (headlines), `india_screener` (Screener.in-scraped ROE/ROCE —
 fills a real yfinance gap, see `docs/screener-integration-design.md`).
 Broker-agnostic by convention — symbols/sectors as plain arguments, never a

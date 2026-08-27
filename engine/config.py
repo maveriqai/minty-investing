@@ -72,6 +72,21 @@ def build_tool_config(
         # auto-approves every built-in tool, not just MCP tools. Restrict to
         # what Minty actually needs; no Edit/NotebookEdit, which nothing here
         # has a use for yet.
-        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write", "Bash"],
+        #
+        # No Bash (issue #25, fixed 2026-08-27): every deterministic-script
+        # tool already shells out server-side via engine/skill_tools.py's own
+        # subprocess call, not the model's own Bash — so Bash was never
+        # load-bearing for the designed skill flow. Its one real exercised
+        # use (fetching a primary-source filing PDF directly) bypassed
+        # mcp/common/nse_fetch.py's cache/throttle/circuit-breaker and
+        # Minty's auto-capture/Sources-footer grounding entirely, with no
+        # scoping ever actually enforced (`allowed_bash_prefixes` defaulted
+        # to empty, making the scoping hook a permanent no-op — a prefix
+        # allow-list can't reliably block network access anyway: curl,
+        # `python -c` with urllib, wget, and nc all need different prefixes).
+        # `india_filings.get_filing_document` is the governed replacement.
+        # Same "structural, not policy" bar CLAUDE.md sets for order
+        # execution — removing the tool closes the whole class at once.
+        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write"],
         max_buffer_size=max_buffer_size if max_buffer_size is not None else _MAX_BUFFER_SIZE,
     )

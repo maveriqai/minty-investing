@@ -66,6 +66,17 @@ def test_capture_path_symbol_keyed_tools_uppercase_the_symbol(tmp_path):
     assert news.name == f"news_RELIANCE_{_TODAY}.json"
 
 
+def test_capture_path_filing_document_keyed_by_url_basename(tmp_path):
+    # issue #25's get_filing_document takes a url, not a symbol — no ticker
+    # to key the filename on.
+    path = capture_path(
+        "mcp__india_filings__get_filing_document",
+        {"url": "https://nsearchives.nseindia.com/corporate/SBIN_PressRelease.pdf"},
+        tmp_path,
+    )
+    assert path.name == f"filing_document_SBIN_PressRelease.pdf_{_TODAY}.json"
+
+
 def test_capture_path_fii_dii_needs_no_args(tmp_path):
     path = capture_path("mcp__india_filings__get_fii_dii_flows", {}, tmp_path)
     assert path.name == f"fii_dii_{_TODAY}.json"

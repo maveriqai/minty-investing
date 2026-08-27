@@ -21,15 +21,27 @@ Endpoint coverage verified live 2026-07-08 (see ROADMAP.md Phase 1 step 3):
 Every tool returns {"source", "as_of", "data"} so outputs are
 provenance-ready (CLAUDE.md Non-Negotiable Product Rules). No money math
 happens here — this is filings/ownership/flow data, not computed figures.
+
+`get_filing_document` fetches and extracts text from the actual filed
+document (a PDF) behind an announcement's `attchmntFile` URL — added for
+issue #25, closing the gap that previously drove the model to raw Bash+curl
+against nsearchives.nseindia.com directly, bypassing nse_fetch.py's
+cache/throttle/circuit-breaker and Minty's own auto-capture/Sources-footer
+grounding entirely. Bash is no longer in Minty's builtin tool surface at all
+(engine/config.py) — this tool is the governed replacement for reading a
+filing's actual content, not just its announcement metadata.
 """
 
 from __future__ import annotations
 
+import io
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import pypdf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 import nse_fetch  # noqa: E402
@@ -143,11 +155,56 @@ def get_bulk_block_deals(symbol: str | None = None) -> dict[str, Any]:
     return _safe_fetch("NSE historical/bulk-deals", "/api/historical/bulk-deals", params, REFERERS["bulk_block"])
 
 
+# Comfortably above what a results press release/investor presentation needs
+# (SBI's Q1FY27 press release, read live during issue #25's own discovery,
+# extracted well under this) while staying far under the SDK's stdio buffer
+# cap (see engine/config.py's _MAX_BUFFER_SIZE docstring for that history).
+_MAX_EXTRACTED_CHARS = 20_000
+
+
+def _extract_pdf_text(content: bytes) -> tuple[str, int]:
+    """Returns (extracted text, page count). Text is truncated to `_MAX_EXTRACTED_CHARS`, per-page,
+    so a truncation lands on a page boundary rather than mid-sentence."""
+    reader = pypdf.PdfReader(io.BytesIO(content))
+    parts: list[str] = []
+    total_chars = 0
+    for page in reader.pages:
+        page_text = page.extract_text() or ""
+        if total_chars + len(page_text) > _MAX_EXTRACTED_CHARS:
+            parts.append("... [truncated]")
+            break
+        parts.append(page_text)
+        total_chars += len(page_text)
+    return "\n".join(parts).strip(), len(reader.pages)
+
+
+def get_filing_document(url: str) -> dict[str, Any]:
+    """Fetch and extract text from the actual filed document (a PDF) behind an announcement.
+
+    `url` must be the exact `attchmntFile` value from a prior `get_announcements` call — an NSE-owned
+    host (e.g. nsearchives.nseindia.com); anything else is refused. Use this when a claim needs checking
+    against the primary source itself, not just the announcement's own description field. Routes through
+    mcp/common/nse_fetch.py's cache/throttle/circuit-breaker like every other call in this module, cached
+    for 30 days since a filed document never changes once submitted. Returns extracted text (not raw PDF
+    bytes) truncated to roughly 20k characters on a page boundary — read the returned text, don't try to
+    reconstruct or re-fetch the document from it. Never fetch a filing document via Bash/curl — that
+    bypasses this module's caching/rate-limiting and Minty's own auto-capture/Sources-footer grounding
+    entirely (issue #25).
+    """
+    try:
+        content = nse_fetch.nse_get_binary(url, referer=REFERERS["announcements"])
+        text, num_pages = _extract_pdf_text(content)
+        return _envelope({"url": url, "num_pages": num_pages, "text": text}, "NSE filing document")
+    except Exception as exc:  # noqa: BLE001 — surfaced to the caller as a data gap, see module docstring
+        return _envelope({"error": str(exc)}, "NSE filing document")
+
+
 mcp.tool()(get_announcements)
 mcp.tool()(get_shareholding_pattern)
 mcp.tool()(get_fii_dii_flows)
 mcp.tool()(get_surveillance_list)
 mcp.tool()(get_bulk_block_deals)
+mcp.tool()(get_filing_document)
 
 
 if __name__ == "__main__":

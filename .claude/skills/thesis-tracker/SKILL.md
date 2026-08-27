@@ -112,7 +112,12 @@ tool, never eyeballed.
    conviction (High/Medium/Low). Where the data point is a filing, pull it
    for real via `india_filings.get_announcements` or
    `india_filings.get_shareholding_pattern(symbol)` — don't paraphrase from
-   memory.
+   memory. When a user-reported figure needs checking against the actual
+   filed document (not just the announcement metadata), call
+   `india_filings.get_filing_document(url)` with the `attchmntFile` URL from
+   `get_announcements` — never Bash/curl (issue #25: that bypassed caching,
+   rate-limiting, and auto-capture entirely, and Bash isn't in Minty's tool
+   surface at all anymore).
 
 4. **Compute the deterministic move.** Call the `run_thesis_math` tool
    (not Bash) with `workspace_root` set to the exact active-workspace path,

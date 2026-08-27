@@ -71,6 +71,14 @@ def _symbol(args: dict[str, Any], key: str = "symbol") -> str:
     return str(args[key]).strip().upper()
 
 
+def _filing_document_filename(args: dict[str, Any], today: str) -> str:
+    """Keyed by the fetched URL's own basename (e.g. the NSE-assigned PDF filename), not a symbol —
+    `get_filing_document` (issue #25) only takes a URL, not a ticker."""
+    url = str(args["url"])
+    basename = url.rstrip("/").rsplit("/", 1)[-1] or "document"
+    return f"filing_document_{basename}_{today}.json"
+
+
 def _quote_filename(args: dict[str, Any], today: str) -> str:
     symbols = args.get("symbols") or []
     if symbols and all(str(s).startswith("^") for s in symbols):
@@ -96,6 +104,7 @@ CAPTURE_SPECS: dict[tuple[str, str], FilenameFn] = {
     ): lambda args, today: f"fundamentals_screener_{_symbol(args)}_{today}.json",
     ("india_price", "get_daily_ohlcv"): lambda args, today: f"{_symbol(args)}_ohlcv_1y.json",
     ("india_filings", "get_fii_dii_flows"): lambda args, today: f"fii_dii_{today}.json",
+    ("india_filings", "get_filing_document"): _filing_document_filename,
 }
 
 
