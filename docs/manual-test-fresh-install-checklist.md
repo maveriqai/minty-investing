@@ -108,6 +108,18 @@ session's `user_id` (e.g. a different demat/account logs in),
 than silently mixing accounts. Hard to trigger without a second account,
 but worth confirming this branch exists and isn't silently bypassed.
 
+**Status (2026-08-28):** Still not live-triggered end-to-end — no second
+Zerodha account available, and a safe simulated attempt (editing
+`data/account_identity.json`'s `user_id`, meaning to restore it after) was
+blocked by Claude Code's own permission classifier before it could run.
+The guard's compare-and-refuse logic is confirmed to exist in
+`thesis-tracker`'s `SKILL.md`, and the anchor's write-once persistence is
+genuinely code-enforced (`engine/tool_capture.py`, tested), but the actual
+refusal is prompt-only, unverified live. See
+`docs/manual-test-runs/2026-08-28/results_2026-08-28T00-21-35.md`. Still
+needs a real second account, or a human (not an agent) editing the anchor
+by hand, to close out for real.
+
 ## J. Staying updated — digest actually changes day to day
 
 1. Day 1: `you> give me the morning digest` — note 2-3 specific numbers (a
@@ -119,6 +131,17 @@ but worth confirming this branch exists and isn't silently bypassed.
 3. If something material happened to a holding between runs, does the
    digest surface it, or does it require a separate `red-flag-scan` ask?
    Worth knowing where the "stay updated" boundary sits today either way.
+
+**Status (2026-08-28): Pass.** Compared 2026-08-27's captured digest
+against a fresh 2026-08-28 run — total value, day P&L, and SBIN's price
+all genuinely moved (computed by `digest_math.py` both times, never
+eyeballed), every Sources `as_of` date rolled forward, and one wrinkle
+(Kite holdings couldn't be re-fetched) was surfaced explicitly rather than
+silently served as fresh. `materiality_check` surfaced 7 items unprompted,
+including two first-order events on held names — so news/announcement-level
+"what changed" doesn't need a separate `red-flag-scan` ask, though ASM/GSM
+and promoter-holding-trend checks still do (digest only covers the
+former). See `docs/manual-test-runs/2026-08-28/results_2026-08-28T00-21-35.md`.
 
 ## K. Tracking the *portfolio*, not just one name
 
