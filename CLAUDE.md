@@ -97,12 +97,34 @@ per-topic, not named — a real single directory (`docs/next-phase-plan.md`
 (`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
 `screen-indian-stocks`) writes independent, date-stamped files into
 `workspace/results/`, never edited after the fact — raw tool captures go to
-`workspace/data/`. The Zerodha account identity anchor lives outside the
-workspace, at install-wide `data/account_identity.json` — written once,
-deterministically, on the first successful `kite_gateway.get_profile` call,
-never overwritten by a model-initiated tool call. `MINTY_WORKSPACE` can
-resolve a named `.dev-workspaces/<name>/` sandbox for test isolation only —
-never a conversational command, never something a real install needs.
+`workspace/data/`. `workspace/sessions/<timestamp>.md` (issue #13,
+`engine/session_transcript.py`) holds one raw transcript per REPL run,
+engine-appended every turn. `workspace/memory_candidates.md` (issue #14,
+`engine/memory_candidates.py`) is the append-then-clear staging file for
+memory-candidate review — see "Model-initiated writes" below. The Zerodha
+account identity anchor lives outside the workspace, at install-wide
+`data/account_identity.json` — written once, deterministically, on the
+first successful `kite_gateway.get_profile` call, never overwritten by a
+model-initiated tool call. `MINTY_WORKSPACE` can resolve a named
+`.dev-workspaces/<name>/` sandbox for test isolation only — never a
+conversational command, never something a real install needs.
+
+**Model-initiated writes — explicit remember + staged candidates (issue
+#14).** Two mechanisms let the model write to the workspace on its own
+initiative, outside any skill's deterministic-script path: (1) when the
+user explicitly asks Minty to remember/note/save something, an always-on
+system-prompt instruction (`_REMEMBER_SYSTEM_PROMPT`,
+`engine/harnesses/claude_agent_sdk.py`) has the model call
+`update_workspace_notes` directly, in the same turn; (2) when something
+durable surfaces without an explicit ask, `stage_memory_candidate`
+(`engine/memory_candidates.py`) lets the model queue it to
+`workspace/memory_candidates.md` — never `notes.md` directly. Nothing
+staged this way reaches `notes.md` without a human confirming it: at the
+next REPL start, `engine/interactive.py`'s `_repl` reads and clears any
+pending candidates and runs a review turn presenting them for confirm/
+discard before any `update_workspace_notes` call. This pipeline is
+prompt-engineered end to end, not code-enforced the way order-execution
+denial is — see issue #23 for the deferred architectural follow-up.
 
 ## Non-Negotiable Product Rules
 
@@ -210,9 +232,10 @@ reference.)
 
 ## Open Items
 
-See `docs/next-phase-plan.md` §7/§8 and the README's "Known gaps" section
-for what's genuinely unresolved (Windows support — `os.fchmod` blocker in
+See `docs/next-phase-plan.md` §8 and the README's "Known gaps" section for
+what's genuinely unresolved (Windows support — `os.fchmod` blocker in
 `kite_gateway`'s session persistence, untested reminder backend; no CI/
-CONTRIBUTING doc yet; onboarding step 2's "already connected" branch not
-yet live-verified). When a task seems to depend on one of these, stop and
-check rather than assuming it's already solid.
+CONTRIBUTING doc yet; issue #23 — the memory-extraction staging pipeline's
+confirm-before-write guarantee is prompt-only, not code-enforced). When a
+task seems to depend on one of these, stop and check rather than assuming
+it's already solid.
