@@ -8,9 +8,7 @@ use it. See [`docs/vision.md`](docs/vision.md) for the full scope and
 
 **Status:** this file describes the intended install/first-run experience
 for review. Everything below is built and live-verified, including a full
-fresh-clone-to-first-digest run, with one exception: Onboarding step 2's
-"already connected" message has been built and unit-tested but not yet
-run against a real Kite session — see "Known gaps" at the end for the
+fresh-clone-to-first-digest run — see "Known gaps" at the end for the
 remaining rough edges (none block a normal first run).
 
 ## Prerequisites
@@ -184,6 +182,25 @@ Every output is grounded in real tool calls (never model memory), ends
 with a Sources footer, and carries the SEBI disclaimer. Minty is
 read-only against your broker by construction — order-placing tools are
 never in its tool surface at all, not just withheld by policy.
+
+## Remembering things
+
+Ask Minty to remember something explicitly, any time, whether or not a
+skill is running:
+
+```
+you> remember that I don't want anything below ₹500cr market cap
+```
+
+It's saved to your workspace notes immediately — no confirmation step,
+since you asked directly.
+
+Minty also notices durable things you mention in passing — a preference,
+an open thread — without you framing it as "remember this." Those aren't
+written anywhere right away: they're queued, and at the start of your
+*next* session Minty presents them for you to confirm or discard before
+anything reaches your notes. Nothing lands in the hand-curated notes file
+without you actually seeing it first.
 
 ## Data sources
 
