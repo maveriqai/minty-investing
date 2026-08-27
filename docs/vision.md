@@ -129,13 +129,23 @@ to day, not just sounds good on paper.
   that constraint already proved itself (the compounding exit criterion was
   met with exactly this plain-file approach, zero embeddings). Building a
   RAG pipeline now — embeddings, chunking, retrieval tuning — would be
-  solving a scaling problem before it exists. Same reasoning applies to
-  automatic memory extraction/consolidation (vs. today's skill-driven
-  "a skill decides what's worth saving") — also not v1. **Trigger to
-  revisit:** a single workspace's notes genuinely stop fitting in context,
-  or users actually want search across months of accumulated history
-  rather than "what does this workspace currently know" — a real signal,
-  not a timeline.
+  solving a scaling problem before it exists. **Trigger to revisit:** a
+  single workspace's notes genuinely stop fitting in context, or users
+  actually want search across months of accumulated history rather than
+  "what does this workspace currently know" — a real signal, not a
+  timeline.
+  - *Update, issue #14 (2026-08-25):* a narrower form of automatic memory
+    extraction did ship — the model can stage a durable-but-unconfirmed
+    fact to `workspace/memory_candidates.md` on its own initiative
+    (`stage_memory_candidate`, `engine/memory_candidates.py`), surfaced
+    for a human to confirm or discard at the next session's start before
+    anything reaches `notes.md`. What's still out of scope is blind,
+    unreviewed auto-write straight into `notes.md`, and any form of
+    retrieval beyond "read the whole file" — the confirm-before-write
+    gate and the no-RAG boundary both still hold; only the "does a skill
+    have to be running to notice something worth saving" boundary moved.
+    See `docs/next-phase-plan.md` §8 and issue #23 for the follow-up on
+    hardening that gate beyond prompt instructions.
 - Any UI language other than English.
 - A mobile app.
 
@@ -199,13 +209,14 @@ tools — by omission from the tool surface, not by a permission check
 someone could get wrong. The resulting session persists locally between
 runs (git-ignored, owner-only file permissions, time-limited).
 
-**Layer 2 — Minty-owned data servers.** Four local MCP servers Minty
+**Layer 2 — Minty-owned data servers.** Five local MCP servers Minty
 writes and owns: `india_price` (quotes/OHLCV/fundamentals), `india_filings`
 (announcements, shareholding pattern, FII/DII flows, surveillance lists),
-`india_macro` (policy rates, exchange calendar), `india_news` (headlines).
-Broker-agnostic by convention — symbols/sectors as plain arguments, never
-a Kite-specific response shape — so a second broker later touches Layer 1
-only.
+`india_macro` (policy rates, exchange calendar), `india_news` (headlines),
+`india_screener` (Screener.in-scraped ROE/ROCE — fills a real yfinance gap,
+see `docs/screener-integration-design.md`). Broker-agnostic by convention —
+symbols/sectors as plain arguments, never a Kite-specific response shape —
+so a second broker later touches Layer 1 only.
 
 **Engine.** Minty's own process, not Claude Code. A thin `Harness`
 protocol is the one seam to a model backend; `ClaudeAgentSDKHarness` is
@@ -257,7 +268,11 @@ exception to "flat" — thesis-tracker reads, merges, and rewrites a thesis,
 the one place cross-symbol collision is a real risk. Everything else
 (`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
 `screen-indian-stocks`) writes independent, date-stamped files straight
-into `workspace/results/`, never edited after the fact. The Zerodha
+into `workspace/results/`, never edited after the fact.
+`workspace/sessions/<timestamp>.md` (issue #13) holds one raw transcript
+per REPL run, every turn engine-appended. `workspace/memory_candidates.md`
+(issue #14) is an append-then-clear staging file — see the non-goals
+update above and §5's model-initiated-writes bullet below. The Zerodha
 account identity anchor lives outside the workspace entirely, at
 install-wide `data/account_identity.json` — it's a machine safety check,
 not a note, written once, deterministically, on the first successful
@@ -297,6 +312,15 @@ scoped decision:
 - **User data stays local.** Notes, preferences, portfolio holdings,
   workspace content — never committed to the repo, never assumed by code
   that ships.
+- **Model-initiated writes require a human gate.** Two mechanisms (issue
+  #14) let the model write to the workspace on its own initiative, outside
+  any skill's deterministic-script path: an explicit "remember this"
+  writes to `notes.md` directly in the same turn, but an incidental,
+  unconfirmed observation only ever reaches `stage_memory_candidate` —
+  never `notes.md` — and sits in `workspace/memory_candidates.md` until a
+  human confirms or discards it at the next session's start. Today this
+  gate is prompt-engineered end to end, not code-enforced the way
+  order-execution denial is (issue #23 tracks hardening it).
 - **Be polite to data sources.** All exchange (NSE/BSE) fetching goes
   through cached, rate-limited fetchers with backoff — never hot-loop a
   real exchange endpoint from a session. A skill's own documented call
@@ -316,7 +340,7 @@ scoped decision:
 
 **Carries over as-is (tested, working):**
 - Layer 2 MCP servers: `india_price`, `india_filings`, `india_macro`,
-  `india_news`
+  `india_news`, `india_screener`
 - `kite_gateway` guardrail (allow-list design, session persistence)
 - Skill *content* (ported into the new single-source folder convention)
 
@@ -345,9 +369,10 @@ scoped decision:
   N consecutive on-demand invocations with no code fix required in
   between — reliability measured per-invocation, not per-unattended-day,
   since nothing runs unattended anymore.
-- All three v1 must-have skills (`docs/skills.md`) run successfully
-  against a real connected Zerodha account, with grounded output and a
-  Sources footer on each.
+- All five v1 must-have skills (`docs/skills.md`: morning-digest,
+  portfolio-health-check, red-flag-scan, thesis-tracker,
+  screen-indian-stocks) run successfully against a real connected Zerodha
+  account, with grounded output and a Sources footer on each.
 
 **Track 2 — contributor surface:**
 - A person who isn't the owner can clone the repo, follow Getting
