@@ -551,22 +551,29 @@ coupled engine changes, not one:
 5. Phase-2-gated items in §3.4 stay out of scope until their own gating
    criteria are revisited — not part of this plan.
 
-## 7. Open questions
+## 7. Open questions (resolved)
 
-- Whether `update_workspace_notes` should take a single generalized
-  `target` argument constrained to an allow-listed set, or split into two
-  small dedicated tools (`update_workspace_notes`, `update_thesis`) —
-  not designed yet, real work item for §6 item 1.
-- Whether the dev-only workspace-override mechanism (env var, per §4) is
-  the right shape for test isolation, or whether a CLI flag or something
-  else is more ergonomic — won't really be known until whoever does §6
-  item 1 has actually used it once.
-- Whether `thesis-tracker`'s pre-purchase/watchlist mode needs any new
-  Layer 2 data this repo doesn't already have, or ports cleanly on
-  existing tools — needs a scoping read of the old repo's
-  `skills/thesis-tracker/SKILL.md` before starting.
-- Whether `screen-indian-stocks` needs anything beyond the instruments
-  master + existing fundamentals tools already available here.
+All four items below were open when this section was written; all four
+have since been settled by shipped code, kept here for the record rather
+than deleted outright:
+
+- ~~Whether `update_workspace_notes` should take a single generalized
+  `target` argument... or split into two small dedicated tools~~ —
+  **Resolved:** built as a single generalized, allow-listed `target`
+  argument (`engine/workspace_notes.py`'s `_resolve_target`).
+- ~~Whether the dev-only workspace-override mechanism (env var, per §4) is
+  the right shape for test isolation~~ — **Resolved:** shipped as-is,
+  `.dev-workspaces/<name>/` + `MINTY_WORKSPACE`, exercised throughout
+  `tests/test_engine_workspace.py` and `tests/test_engine_claude_harness.py`
+  with no friction reported.
+- ~~Whether `thesis-tracker`'s pre-purchase/watchlist mode needs any new
+  Layer 2 data~~ — **Resolved:** ported cleanly on existing tools, no new
+  Layer 2 server needed (commit `4b7bb2c`).
+- ~~Whether `screen-indian-stocks` needs anything beyond the instruments
+  master + existing fundamentals tools~~ — **Resolved, answer was yes:**
+  needed a whole new Layer 2 server, `india_screener` (commit `2ea25e2`,
+  issue #9), to fill a real yfinance ROE/ROCE gap — see
+  `docs/screener-integration-design.md`.
 
 ## 8. Open thread: session transcripts and memory
 
@@ -631,15 +638,31 @@ wrong:
      session; if anything's staged, it's sent as a synthesized first turn
      asking the model to present it to the user and only call
      `update_workspace_notes` for what they confirm. The staging file is
-     cleared the moment it's handed to that turn, not after the user
-     actually answers — an accepted, low-stakes crash-window risk (see
-     `engine/memory_candidates.py`'s docstring), same character as
-     issue #13's accepted same-second-collision risk.
+     cleared the moment it's handed to that turn; if that review turn
+     itself fails, the content is restored rather than lost. The
+     remaining risk window is narrower than that: a crash *after* the
+     review turn succeeds but *before* the user actually replies still
+     loses the pending decision — accepted, low-stakes, same character as
+     issue #13's accepted same-second-collision risk, since by then the
+     candidates were already shown on screen and recorded in the session
+     transcript, not silently gone.
 
   Live-verified end to end 2026-08-25: an incidental preference mentioned
   mid-turn ("by the way, I'm avoiding stocks with promoter pledge above
   20%") was staged, not written directly; the next session surfaced it,
   the user confirmed, and it landed in notes.md under `## Preferences`.
+
+  **Review pass, 2026-08-25 (commit `83efcfc`):** a full 8-angle code
+  review found 10 findings. 6 mechanical/correctness ones were fixed the
+  same day — candidate-loss-on-crash (the restore behavior described
+  above), a missing `workspace_root` note in staged-skill stage prompts,
+  prompt-injection fencing around staged-candidate content in the review
+  turn, a transcript mislabeling bug, `memory_candidates.md` noise in the
+  changed-files report, and duplicated workspace-root-resolution code. The
+  remaining 4 — all sharing one root cause, that the entire
+  stage→confirm→write pipeline is prompt-engineered with no code-level
+  enforcement — were deliberately deferred as a design-tradeoff question
+  and filed as issue #23, not patched piecemeal.
 
 Not sequenced into §6 — flagged here so the distinction isn't lost before
 it's picked up.
