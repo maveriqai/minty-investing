@@ -77,7 +77,7 @@ def test_send_captures_matching_tool_result_to_workspace_data(tmp_path):
             TextBlock(text="checking surveillance..."),
             ToolUseBlock(id="t1", name="mcp__india_filings__get_surveillance_list", input={"list_type": "ASM"}),
         ]),
-        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content='{"source": "x", "data": []}')]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content='{"source": "x", "as_of": "2026-08-18", "data": []}')]),
         ResultMessage(subtype="success", result="done"),
     ]
     session = ClaudeSession(_FakeClient(messages))
@@ -86,7 +86,7 @@ def test_send_captures_matching_tool_result_to_workspace_data(tmp_path):
 
     assert chunks[0] == "checking surveillance..."
     captured = tmp_path / "data" / f"surveillance_asm_{_TODAY}.json"
-    assert captured.read_text() == '{"source": "x", "data": []}'
+    assert captured.read_text() == '{"source": "x", "as_of": "2026-08-18", "data": []}'
     assert session.last_result.ok is True
 
 
@@ -96,7 +96,9 @@ def test_send_appends_sources_footer_when_workspace_root_set_and_something_captu
             TextBlock(text="checking surveillance..."),
             ToolUseBlock(id="t1", name="mcp__india_filings__get_surveillance_list", input={"list_type": "ASM"}),
         ]),
-        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content='{"source": "x", "data": []}')]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "x", "as_of": "2026-08-18", "data": []}')
+        ]),
         ResultMessage(subtype="success", result="done"),
     ]
     session = ClaudeSession(_FakeClient(messages))
@@ -147,7 +149,10 @@ def test_send_handles_list_shaped_tool_result_content(tmp_path):
             ToolUseBlock(id="t1", name="mcp__kite_gateway__get_holdings", input={}),
         ]),
         UserMessage(content=[
-            ToolResultBlock(tool_use_id="t1", content=[{"type": "text", "text": '{"data": []}'}])
+            ToolResultBlock(
+                tool_use_id="t1",
+                content=[{"type": "text", "text": '{"source": "kite", "as_of": "2026-08-18", "data": []}'}],
+            )
         ]),
         ResultMessage(subtype="success", result="done"),
     ]
@@ -156,7 +161,7 @@ def test_send_handles_list_shaped_tool_result_content(tmp_path):
     _drain(session, "fetch holdings", workspace_root=tmp_path)
 
     captured = tmp_path / "data" / f"holdings_{_TODAY}.json"
-    assert captured.read_text() == '{"data": []}'
+    assert captured.read_text() == '{"source": "kite", "as_of": "2026-08-18", "data": []}'
 
 
 def test_send_skips_capture_when_workspace_root_is_none(tmp_path):
@@ -271,7 +276,9 @@ def test_send_skips_its_own_footer_when_a_staged_tool_was_called(tmp_path):
         AssistantMessage(content=[
             ToolUseBlock(id="t0", name="mcp__kite_gateway__get_holdings", input={}),
         ]),
-        UserMessage(content=[ToolResultBlock(tool_use_id="t0", content="[]")]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t0", content='{"source": "kite", "as_of": "2026-08-18", "data": []}')
+        ]),
         AssistantMessage(content=[
             ToolUseBlock(id="t1", name="mcp__staged_workflows__run_staged_morning_digest", input={}),
         ]),

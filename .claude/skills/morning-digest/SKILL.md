@@ -51,10 +51,12 @@ stages:
   - id: surveillance
     instructions: |
       This is Stage 2 (Surveillance) of this run — step 7 in the Steps
-      section above. Fetch the ASM/GSM surveillance lists and call
-      run_surveillance_check against today's holdings. This stage doesn't
-      need the portfolio/market stage's output. Stop once this stage's
-      step is done.
+      section above. Read results/digest_{date}.json (see the file list
+      below) for today's full held-symbol set (`all_positions`), fetch the
+      ASM/GSM surveillance lists filtered to those symbols, and call
+      run_surveillance_check. Stop once this stage's step is done.
+    needs:
+      - "{workspace}/results/digest_{date}.json"
     produces:
       - "{workspace}/results/surveillance_flags_{date}.json"
   - id: news_and_materiality
@@ -227,13 +229,22 @@ exist).
 
 ## Stage 2: Surveillance
 
-7. **Surveillance check, bounded.** Call
-   `india_filings.get_surveillance_list("ASM")` and `("GSM")` — don't call
-   NSE per-symbol for this. The engine automatically saves the two raw
-   results to `data/surveillance_asm_<date>.json` and
-   `data/surveillance_gsm_<date>.json` as each call returns — no separate
-   save step. Then call the `run_surveillance_check` tool (not Bash) with
-   `workspace_root`,
+7. **Surveillance check, bounded.** Read `results/digest_<date>.json`
+   (produced by Stage 1) and collect every symbol from its
+   `all_positions` field — that's today's actual held-symbol set,
+   whichever holdings snapshot Stage 1 ended up using (today's or a
+   fallback). Call `india_filings.get_surveillance_list("ASM",
+   symbols=<that list>)` and `("GSM", symbols=<that list>)` — always pass
+   `symbols`, never omit it. The unfiltered market-wide list runs into
+   tens of thousands of characters and can silently exceed the model's own
+   tool-result size cap, which substitutes a plain-text redirect in place
+   of the real data instead of a real error (issue #24, hit live twice:
+   2026-08-27 and again 2026-08-28) — filtering to your own held symbols
+   keeps the response small and avoids that failure mode almost entirely.
+   The engine automatically saves the two raw results to
+   `data/surveillance_asm_<date>.json` and `data/surveillance_gsm_<date>.json`
+   as each call returns — no separate save step. Then call the
+   `run_surveillance_check` tool (not Bash) with `workspace_root`,
    `holdings_file`/`asm_file`/`gsm_file` set to those three saved paths, and
    `date_tag` set to `<date>` — the output filename comes from this
    argument, not from parsing the input filenames, so it stays
@@ -248,6 +259,21 @@ exist).
    error envelope straight through as the saved file — the script treats an
    error envelope as zero hits, not a crash, so the digest still completes;
    note the outage in the brief rather than silently reporting no flags.
+
+   **If a saved ASM/GSM file still looks corrupted, incomplete, or
+   otherwise unreadable — even after filtering — never hand-author or
+   patch it with `Write`.** `workspace/data/` exists to hold verbatim,
+   engine-captured tool output and nothing else; a `Write` call there
+   produces content nobody actually fetched, indistinguishable later from
+   a real capture, which is a worse version of the exact grounding failure
+   issue #24 is about (found live 2026-08-28: a prior run of this same
+   step, faced with a corrupted capture, read fragments of the SDK's own
+   raw overflow file and used `Write` to reconstruct a "partial" surveillance
+   list with an unverifiable completeness claim). Treat it the same as any
+   other failed fetch: report the gap honestly in the brief (which symbols'
+   surveillance status couldn't be confirmed this run) and let
+   `run_surveillance_check` work with whatever real data exists, same as
+   the NSE-outage case above.
 
 ## Stage 3: News & materiality
 

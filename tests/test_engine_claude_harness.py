@@ -311,7 +311,9 @@ def test_run_threads_workspace_root_and_folds_the_footer_into_the_returned_text(
         AssistantMessage(content=[
             ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]}),
         ]),
-        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content='{"data": {}}')]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "yfinance", "as_of": "2026-08-18", "data": {}}')
+        ]),
         AssistantMessage(content=[TextBlock(text="RELIANCE is trading flat today.")]),
         ResultMessage(subtype="success", result="RELIANCE is trading flat today."),
     ]

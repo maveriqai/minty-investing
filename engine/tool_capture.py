@@ -143,21 +143,39 @@ def capture_path(tool_name: str, tool_input: dict[str, Any], workspace_root: Pat
     return workspace_root / "data" / filename
 
 
-def _is_error_envelope(result_text: str) -> bool:
-    """True for the {"source","as_of","data"} envelope shape every Layer-2
-    tool uses to report an application-level failure (NSE timeout, thin
-    small-cap coverage) — a *successful* MCP call whose `data` field is
-    itself `{"error": "..."}`. Every skill script's own `_envelope_data`-
-    style check (e.g. red_flag_check.py) already treats this shape as
-    "missing, skip this check" — never a reason to keep it, let alone let
-    it overwrite a real capture. Non-JSON or non-dict-`data` text returns
-    False (not this shape), so ordinary/malformed content is unaffected.
+def _is_untrustworthy_capture(result_text: str) -> bool:
+    """True when `result_text` must never be written to a captured path.
+    Two distinct failure shapes, both real, found live:
+
+    1. The {"source","as_of","data"} envelope shape every Layer-2 tool uses
+       to report an application-level failure (NSE timeout, thin small-cap
+       coverage) — a *successful* MCP call whose `data` field is itself
+       {"error": "..."}. Every skill script's own `_envelope_data`-style
+       check (e.g. red_flag_check.py) already treats this shape as
+       "missing, skip this check" — never a reason to keep it, let alone
+       let it overwrite a real capture. Found live 2026-08-18.
+    2. Anything that isn't valid JSON matching that basic envelope contract
+       at all — e.g. the Claude Agent SDK's own plain-text "exceeds maximum
+       allowed tokens" redirect, substituted in place of a real tool result
+       when it's too large for the SDK to pass through. That redirect
+       arrives as an ordinary, non-error ToolResultBlock (nothing upstream
+       flags it), so before this check existed it got written verbatim to
+       the exact canonical filename a real capture would use — see issue
+       #24, found live 2026-08-27 (an oversized ASM surveillance list) and
+       again 2026-08-28 in the same shape.
+
+    Genuinely malformed/unexpected content is treated the same as an
+    outright fetch error: rejected, not saved — a missing capture is an
+    honest, visible gap; a corrupted one silently masquerading as real data
+    at its expected path is not.
     """
     try:
         parsed = json.loads(result_text)
     except (json.JSONDecodeError, TypeError):
-        return False
-    data = parsed.get("data") if isinstance(parsed, dict) else None
+        return True
+    if not isinstance(parsed, dict) or not {"source", "as_of", "data"} <= parsed.keys():
+        return True
+    data = parsed["data"]
     return isinstance(data, dict) and "error" in data
 
 
@@ -166,9 +184,16 @@ def save_tool_result(
 ) -> Path | None:
     """Writes `result_text` (the tool's own raw JSON text, unparsed) to its
     captured path, creating `data/` if needed. Returns the path written, or
-    None if this tool isn't captured, or if the result is an error envelope
-    (see `_is_error_envelope`) — skipped rather than saved, so it can't
-    silently clobber an earlier successful capture at the same path.
+    None if this tool isn't captured, or if the result is untrustworthy
+    (see `_is_untrustworthy_capture`) — skipped rather than saved, so it
+    can't silently clobber an earlier successful capture at the same path,
+    or masquerade as one that was never actually written. A rejection
+    prints a `[capture]` diagnostic line (same audit-visible-but-non-
+    blocking spirit as `engine/tool_budget.py`'s `[budget] ...` lines) —
+    every `minty` session's stdout already lands in
+    `workspace/sessions/<timestamp>.md` (engine/session_transcript.py), so
+    this is durable without needing its own logging setup (see issue #26
+    for the broader gap: no leveled logging exists in this codebase yet).
 
     Otherwise overwrites on repeat calls — freshest *successful* result
     wins, matching a retried or re-fetched call always meaning "trust this
@@ -182,7 +207,8 @@ def save_tool_result(
     path = capture_path(tool_name, tool_input, workspace_root)
     if path is None:
         return None
-    if _is_error_envelope(result_text):
+    if _is_untrustworthy_capture(result_text):
+        print(f"[capture] rejected {tool_name}'s result for {path} — not a real, complete tool result (see issue #24)")
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(result_text)

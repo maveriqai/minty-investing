@@ -136,15 +136,21 @@ def test_save_tool_result_get_profile_writes_once_then_no_ops(tmp_path, monkeypa
     fixed_path = tmp_path / "data" / "account_identity.json"
     monkeypatch.setattr("engine.tool_capture.ACCOUNT_IDENTITY_FILE", fixed_path)
 
-    first = save_tool_result("mcp__kite_gateway__get_profile", {}, '{"data": {"user_id": "AB1234"}}', tmp_path)
+    first_body = '{"source": "kite", "as_of": "2026-08-18", "data": {"user_id": "AB1234"}}'
+    first = save_tool_result("mcp__kite_gateway__get_profile", {}, first_body, tmp_path)
     assert first == fixed_path
-    assert fixed_path.read_text() == '{"data": {"user_id": "AB1234"}}'
+    assert fixed_path.read_text() == first_body
 
     # A later call -- e.g. a different account's own get_profile, or the
     # same account's step-0 reachability ping -- must not overwrite it.
-    second = save_tool_result("mcp__kite_gateway__get_profile", {}, '{"data": {"user_id": "ZZ9999"}}', tmp_path)
+    second = save_tool_result(
+        "mcp__kite_gateway__get_profile",
+        {},
+        '{"source": "kite", "as_of": "2026-08-18", "data": {"user_id": "ZZ9999"}}',
+        tmp_path,
+    )
     assert second is None
-    assert fixed_path.read_text() == '{"data": {"user_id": "AB1234"}}'
+    assert fixed_path.read_text() == first_body
 
 
 def test_capture_path_none_for_uncaptured_tool(tmp_path):
@@ -157,21 +163,49 @@ def test_capture_path_none_when_required_arg_missing(tmp_path):
 
 
 def test_save_tool_result_writes_file_and_creates_data_dir(tmp_path):
-    path = save_tool_result(
-        "mcp__kite_gateway__get_holdings", {}, '{"source": "kite", "data": []}', tmp_path
-    )
+    body = '{"source": "kite", "as_of": "2026-08-18", "data": []}'
+    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, body, tmp_path)
     assert path == tmp_path / "data" / f"holdings_{_TODAY}.json"
-    assert path.read_text() == '{"source": "kite", "data": []}'
+    assert path.read_text() == body
 
 
 def test_save_tool_result_overwrites_on_repeat_call(tmp_path):
-    save_tool_result("mcp__kite_gateway__get_holdings", {}, "first", tmp_path)
-    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, "second", tmp_path)
-    assert path.read_text() == "second"
+    first = '{"source": "kite", "as_of": "2026-08-18", "data": "first"}'
+    second = '{"source": "kite", "as_of": "2026-08-18", "data": "second"}'
+    save_tool_result("mcp__kite_gateway__get_holdings", {}, first, tmp_path)
+    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, second, tmp_path)
+    assert path.read_text() == second
 
 
 def test_save_tool_result_none_for_uncaptured_tool(tmp_path):
     result = save_tool_result("Write", {"file_path": "x"}, "irrelevant", tmp_path)
+    assert result is None
+    assert not (tmp_path / "data").exists()
+
+
+def test_save_tool_result_rejects_non_json_redirect_text(tmp_path, capsys):
+    # issue #24: the Claude Agent SDK's own "exceeds maximum allowed
+    # tokens" substitution arrives as an ordinary, non-error tool result —
+    # not JSON at all, so it must be rejected outright, not saved verbatim
+    # to the exact path a real capture would use.
+    redirect_text = (
+        "Error: result (58,237 characters) exceeds maximum allowed tokens. "
+        "Output has been saved to /Users/x/tool-results/mcp-india_filings-get_surveillance_list-....txt."
+    )
+    result = save_tool_result(
+        "mcp__india_filings__get_surveillance_list", {"list_type": "ASM"}, redirect_text, tmp_path
+    )
+    assert result is None
+    assert not (tmp_path / "data").exists()
+    assert "[capture] rejected" in capsys.readouterr().out
+
+
+def test_save_tool_result_rejects_json_missing_envelope_keys(tmp_path):
+    # Valid JSON, but not the {"source","as_of","data"} contract every
+    # Layer-2 tool actually returns -- shouldn't be trusted either.
+    result = save_tool_result(
+        "mcp__kite_gateway__get_holdings", {}, '{"unexpected": "shape"}', tmp_path
+    )
     assert result is None
     assert not (tmp_path / "data").exists()
 
@@ -206,6 +240,8 @@ def test_save_tool_result_does_not_let_a_later_error_clobber_a_good_capture(tmp_
 def test_save_tool_result_still_overwrites_on_a_second_successful_call(tmp_path):
     # The existing freshest-wins behavior (test_save_tool_result_overwrites_on_repeat_call)
     # must survive unchanged for genuinely successful repeat calls.
-    save_tool_result("mcp__kite_gateway__get_holdings", {}, '{"data": "first"}', tmp_path)
-    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, '{"data": "second"}', tmp_path)
-    assert path.read_text() == '{"data": "second"}'
+    first = '{"source": "kite", "as_of": "2026-08-18", "data": "first"}'
+    second = '{"source": "kite", "as_of": "2026-08-18", "data": "second"}'
+    save_tool_result("mcp__kite_gateway__get_holdings", {}, first, tmp_path)
+    path = save_tool_result("mcp__kite_gateway__get_holdings", {}, second, tmp_path)
+    assert path.read_text() == second

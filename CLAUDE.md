@@ -99,7 +99,12 @@ per-topic, not named — a real single directory (`docs/next-phase-plan.md`
 (`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
 `screen-indian-stocks`) writes independent, date-stamped files into
 `workspace/results/`, never edited after the fact — raw tool captures go to
-`workspace/data/`. `workspace/sessions/<timestamp>.md` (issue #13,
+`workspace/data/`, auto-captured verbatim by the engine
+(`engine/tool_capture.py`) and never hand-authored or patched by the model
+via `Write` — a failed, corrupted, or oversized capture is reported as a
+gap, the same honest-gap policy every skill already applies to a missing
+input, not reconstructed from partial reads (issue #24).
+`workspace/sessions/<timestamp>.md` (issue #13,
 `engine/session_transcript.py`) holds one raw transcript per REPL run,
 engine-appended every turn. `workspace/memory_candidates.md` (issue #14,
 `engine/memory_candidates.py`) is the append-then-clear staging file for

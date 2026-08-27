@@ -73,6 +73,53 @@ def test_get_surveillance_list_routes_to_correct_endpoint(monkeypatch):
     assert calls["path"] == "/api/reportASM"
 
 
+def test_get_surveillance_list_no_filter_returns_everything(monkeypatch):
+    gsm_payload = [{"symbol": "RELIANCE"}, {"symbol": "SBIN"}]
+    monkeypatch.setattr(nse_fetch, "nse_get", lambda path, params=None, referer="": gsm_payload)
+    out = server.get_surveillance_list("GSM")
+    assert out["data"] == gsm_payload
+
+
+def test_get_surveillance_list_filters_flat_gsm_shape(monkeypatch):
+    gsm_payload = [{"symbol": "RELIANCE"}, {"symbol": "SBIN"}, {"symbol": "TCS"}]
+    monkeypatch.setattr(nse_fetch, "nse_get", lambda path, params=None, referer="": gsm_payload)
+    out = server.get_surveillance_list("GSM", symbols=["sbin"])
+    assert out["data"] == [{"symbol": "SBIN"}]
+
+
+def test_get_surveillance_list_filters_nested_asm_shape(monkeypatch):
+    # issue #24: ASM nests longterm/shortterm each under their own "data"
+    # list — a market-wide payload here is what actually blew the SDK's
+    # tool-result size cap live.
+    asm_payload = {
+        "longterm": {"data": [{"symbol": "RELIANCE"}, {"symbol": "SBIN"}]},
+        "shortterm": {"data": [{"symbol": "TCS"}]},
+    }
+    monkeypatch.setattr(nse_fetch, "nse_get", lambda path, params=None, referer="": asm_payload)
+    out = server.get_surveillance_list("ASM", symbols=["sbin"])
+    assert out["data"] == {
+        "longterm": {"data": [{"symbol": "SBIN"}]},
+        "shortterm": {"data": []},
+    }
+
+
+def test_get_surveillance_list_filter_leaves_error_envelope_untouched(monkeypatch):
+    def always_fail(path, params=None, referer=""):
+        raise RuntimeError("NSE fetch failed: 503")
+
+    monkeypatch.setattr(nse_fetch, "nse_get", always_fail)
+    out = server.get_surveillance_list("ASM", symbols=["SBIN"])
+    assert "error" in out["data"]
+    assert "503" in out["data"]["error"]
+
+
+def test_get_surveillance_list_no_symbols_on_list_returns_empty_not_error(monkeypatch):
+    gsm_payload = [{"symbol": "RELIANCE"}]
+    monkeypatch.setattr(nse_fetch, "nse_get", lambda path, params=None, referer="": gsm_payload)
+    out = server.get_surveillance_list("GSM", symbols=["SBIN"])
+    assert out["data"] == []
+
+
 def test_bulk_block_deals_surfaces_failure_honestly(monkeypatch):
     def fake_get(path, params=None, referer=""):
         raise RuntimeError("NSE fetch failed for /api/historical/bulk-deals: 503")

@@ -41,10 +41,14 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    returns, so there's no separate save step:
    - `india_filings.get_shareholding_pattern(symbol)` →
      `data/shareholding_<SYMBOL>_<date>.json`
-   - `india_filings.get_surveillance_list("ASM")` →
-     `data/surveillance_asm_<date>.json` — market-wide, not per-symbol; safe
-     to call every time, the saved file just gets refreshed.
-   - `india_filings.get_surveillance_list("GSM")` →
+   - `india_filings.get_surveillance_list("ASM", symbols=[symbol])` →
+     `data/surveillance_asm_<date>.json` — pass `symbols` set to just this
+     one candidate; the unfiltered market-wide list is unnecessary here
+     (you only care whether *this* symbol is flagged) and risks the
+     tool-result size cap silently substituting a plain-text redirect for
+     the real data (issue #24). Safe to call every time, the saved file
+     just gets refreshed.
+   - `india_filings.get_surveillance_list("GSM", symbols=[symbol])` →
      `data/surveillance_gsm_<date>.json`
    - `india_filings.get_announcements(symbol, from_date, to_date)` **with
      `from_date`/`to_date` explicitly set** to 6-months-back/today

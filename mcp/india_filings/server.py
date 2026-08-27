@@ -30,6 +30,14 @@ cache/throttle/circuit-breaker and Minty's own auto-capture/Sources-footer
 grounding entirely. Bash is no longer in Minty's builtin tool surface at all
 (engine/config.py) — this tool is the governed replacement for reading a
 filing's actual content, not just its announcement metadata.
+
+`get_surveillance_list` takes an optional `symbols` filter — added for
+issue #24, after the unfiltered market-wide ASM/GSM list (tens of
+thousands of characters) exceeded the Claude Agent SDK's own tool-result
+size cap live, twice, and got silently captured as a plain-text redirect
+in place of real data. Every real caller already knows which symbols it
+cares about (morning-digest's held set, red-flag-scan's one candidate), so
+both now pass `symbols` and get back only the matching entries.
 """
 
 from __future__ import annotations
@@ -124,19 +132,56 @@ def get_fii_dii_flows() -> dict[str, Any]:
     return _safe_fetch("NSE fiidiiTradeReact", "/api/fiidiiTradeReact", {}, REFERERS["fii_dii"])
 
 
-def get_surveillance_list(list_type: str = "ASM") -> dict[str, Any]:
+def _filter_surveillance_by_symbols(data: Any, wanted: set[str]) -> Any:
+    """Recursively walks an NSE ASM/GSM payload, keeping only entries whose
+    `symbol` field is in `wanted` — everything else about the shape is
+    preserved untouched. ASM and GSM nest their symbol lists differently
+    (GSM is a flat list; ASM is `{longterm: {data: [...]}, shortterm:
+    {data: [...]}}}` — see `scripts/surveillance_check.py`'s own
+    `_extract_symbols` docstring for the same observation), so this makes
+    no assumption about a fixed key path: a list whose items are all
+    symbol-bearing dicts gets filtered in place, any other list/dict just
+    gets recursed into.
+    """
+    if isinstance(data, dict):
+        if isinstance(data.get("symbol"), str):
+            return data
+        return {key: _filter_surveillance_by_symbols(value, wanted) for key, value in data.items()}
+    if isinstance(data, list):
+        if data and all(isinstance(item, dict) and isinstance(item.get("symbol"), str) for item in data):
+            return [item for item in data if item["symbol"].strip().upper() in wanted]
+        return [_filter_surveillance_by_symbols(item, wanted) for item in data]
+    return data
+
+
+def get_surveillance_list(list_type: str = "ASM", symbols: list[str] | None = None) -> dict[str, Any]:
     """Current ASM or GSM surveillance list (stocks under exchange-imposed trading restrictions).
 
     list_type: "ASM" (Additional Surveillance Measure) or "GSM" (Graded
     Surveillance Measure) — case-insensitive. Useful for red-flag screening
     before recommending/discussing a position: a symbol on either list
     carries added regulatory/liquidity risk the user should know about.
+
+    symbols: the NSE trading symbols you actually care about (e.g. today's
+    held symbols, or the one candidate being screened) — when given, only
+    matching entries are returned. Pass this whenever you already know
+    which symbols you're checking, which is true for every skill that
+    calls this today (morning-digest, red-flag-scan) — the unfiltered
+    market-wide list runs into tens of thousands of characters and can
+    exceed the model's own tool-result size cap, which silently substitutes
+    a plain-text "exceeds maximum allowed tokens" redirect in place of the
+    real data (issue #24). Omit only when the full market-wide list is
+    genuinely what's needed.
     """
     kind = list_type.strip().upper()
     if kind not in ("ASM", "GSM"):
         return _envelope({"error": f"list_type must be ASM or GSM, got '{list_type}'"}, "NSE surveillance")
     path = "/api/reportASM" if kind == "ASM" else "/api/reportGSM"
-    return _safe_fetch(f"NSE report{kind}", path, {"json": "true"}, REFERERS["surveillance"])
+    result = _safe_fetch(f"NSE report{kind}", path, {"json": "true"}, REFERERS["surveillance"])
+    if symbols and isinstance(result.get("data"), (dict, list)):
+        wanted = {s.strip().upper() for s in symbols}
+        result = {**result, "data": _filter_surveillance_by_symbols(result["data"], wanted)}
+    return result
 
 
 def get_bulk_block_deals(symbol: str | None = None) -> dict[str, Any]:
