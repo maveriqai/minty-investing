@@ -115,16 +115,16 @@ stages:
       Fetch current holdings and live quotes, then call run_digest_math.
       Save its output to results/digest_{date}.json.
     produces:
-      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "workspace/results/digest_{date}.json"
   - id: surveillance
     instructions: |
       Fetch the ASM/GSM surveillance lists and call run_surveillance_check
       against today's holdings. Save its output to
       results/surveillance_flags_{date}.json.
     needs:
-      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "workspace/results/digest_{date}.json"
     produces:
-      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
+      - "workspace/results/surveillance_flags_{date}.json"
   - id: news_and_materiality
     instructions: |
       Read results/digest_{date}.json for today's bounded symbol set. For
@@ -132,20 +132,20 @@ stages:
       only, not company name). Call run_materiality_check. Save its output
       to results/materiality_flags_{date}.json.
     needs:
-      - "workspaces/{workspace}/results/digest_{date}.json"
+      - "workspace/results/digest_{date}.json"
     produces:
-      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
+      - "workspace/results/materiality_flags_{date}.json"
   - id: compose
     instructions: |
       Read all three result files below and compose the morning digest
       brief. Any file missing from the list means that stage failed —
       say so explicitly in the relevant section instead of omitting it.
     needs:
-      - "workspaces/{workspace}/results/digest_{date}.json"
-      - "workspaces/{workspace}/results/surveillance_flags_{date}.json"
-      - "workspaces/{workspace}/results/materiality_flags_{date}.json"
+      - "workspace/results/digest_{date}.json"
+      - "workspace/results/surveillance_flags_{date}.json"
+      - "workspace/results/materiality_flags_{date}.json"
     produces:
-      - "workspaces/{workspace}/results/digest_brief_{date}.md"
+      - "workspace/results/digest_brief_{date}.md"
 ```
 
 `produces` is optional per stage — a stage that declares nothing here is
