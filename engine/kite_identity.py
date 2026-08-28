@@ -35,11 +35,15 @@ Deliberately narrow scope, and deliberately fail-open, not fail-closed:
   being confirmed. Closing that "was a check even attempted" coverage
   gap (issue #6) stays on the softer, already-shipped system-prompt
   nudge for now.
-- Only gates `get_holdings`/`get_positions` — the two kite_gateway tools
-  that either persist to disk (`get_holdings`, the one kite_gateway tool
-  `CAPTURE_SPECS` writes to `workspace/data/`) or surface real-money
-  figures to the user (`get_positions`). Broaden only if a real gap
-  surfaces, not preemptively.
+- Only gates `get_holdings`/`get_positions`/`fetch_holdings` — the
+  kite_gateway tools that either persist to disk or surface real-money
+  figures to the user. `get_holdings` itself is now unconditionally
+  blocked from the model's tool inventory (issue #46) — `fetch_holdings`
+  (`engine/holdings_fetch.py`) is the only remaining way to reach
+  holdings data, so it's the practical gate for that persistence path
+  today; `get_holdings` stays listed here too since the mismatch check is
+  about the underlying capability, not which specific tool name currently
+  exposes it. Broaden only if a real gap surfaces, not preemptively.
 """
 
 from __future__ import annotations
@@ -50,7 +54,7 @@ from typing import Any
 
 from engine import kite_status
 
-IDENTITY_GATED_TOOLS = frozenset({"get_holdings", "get_positions"})
+IDENTITY_GATED_TOOLS = frozenset({"get_holdings", "get_positions", "fetch_holdings"})
 
 
 def _user_id_from_data(data: Any) -> str | None:

@@ -154,20 +154,25 @@ exist).
      (deleting `data/account_identity.json`), not something you can fix
      from inside a conversation.
 
-   Then call `kite_gateway.get_holdings` — read-only by construction, not just
-   policy: the order-placing/-modifying tools (`place_order`,
+   Then call `fetch_holdings(workspace_root=...)`, not
+   `kite_gateway.get_holdings` directly (that raw tool is blocked — see
+   issue #46: a full account's holdings can exceed the size a raw tool
+   result can carry). `fetch_holdings` is read-only by construction, same
+   as `get_holdings` was: the order-placing/-modifying tools (`place_order`,
    `modify_order`, `cancel_order`, GTT tools) aren't in `kite_gateway`'s
-   tool surface at all (see docs/vision.md §5). The engine automatically
-   saves the raw result to the workspace's `data/holdings_<YYYY-MM-DD>.json`
-   as soon as the call returns — no separate save step.
+   tool surface at all (see docs/vision.md §5). It fetches and saves the
+   raw result to the workspace's `data/holdings_<YYYY-MM-DD>.json` in one
+   step, reporting back only a holdings count — no separate save step, and
+   nothing to read from its response.
 
-   The shape is already known: each entry has `tradingsymbol`, `exchange`,
-   `isin`, `quantity`, `average_price`, `last_price`, `close_price`, `pnl`
-   (no sector/industry field — sector coverage is a separate, partial
-   effort, see `mcp/common/instruments.py`). Read it with the `Read` tool
-   if you need to inspect it, rather than ad-hoc Bash.
+   The saved file's shape is already known: each entry has
+   `tradingsymbol`, `exchange`, `isin`, `quantity`, `average_price`,
+   `last_price`, `close_price`, `pnl` (no sector/industry field — sector
+   coverage is a separate, partial effort, see `mcp/common/instruments.py`).
+   Read it with the `Read` tool if you need to inspect it, rather than
+   ad-hoc Bash.
 
-   **No active Kite session** (`get_profile`/`get_holdings` fails that
+   **No active Kite session** (`get_profile`/`fetch_holdings` fails that
    way, not a real error): don't stop the stage over it — this session has
    no memory of whether step 0 already asked about it, so just fall back.
    Glob the workspace's `data/` for the newest existing `holdings_*.json`
@@ -183,7 +188,7 @@ exist).
 
    **This fallback is only for a real "no session" failure — never apply
    it to an account-mismatch denial.** The engine also enforces the
-   identity check above itself (issue #19): if `get_holdings` is denied
+   identity check above itself (issue #19): if `fetch_holdings` is denied
    with a message about a different Zerodha account being connected,
    that's not "no active session" and this fallback does not apply. Treat
    it exactly like the "Anchor existed and doesn't match" branch above —
@@ -405,8 +410,9 @@ exist).
 ## Guardrails
 
 - Never call Kite's order-placing/modifying tools — they aren't in
-  `kite_gateway`'s tool surface at all; only read-only calls
-  (`get_holdings`, etc.) are possible.
+  `kite_gateway`'s tool surface at all; only read-only calls are possible.
+  Fetch holdings via `fetch_holdings`, not `kite_gateway.get_holdings`
+  directly — that raw tool is blocked (issue #46).
 - Never compute P&L, day change, or weight by LLM arithmetic — always
   through `scripts/digest_math.py`. Never compute the surveillance-list
   intersection by hand either — always through `scripts/surveillance_check.py`.

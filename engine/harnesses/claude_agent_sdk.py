@@ -69,6 +69,7 @@ from claude_agent_sdk.types import PostToolUseHookInput, PreToolUseHookInput
 from engine import skills
 from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
+from engine.holdings_fetch import build_fetch_holdings_server
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
@@ -84,6 +85,16 @@ from engine.workspace_notes import build_workspace_notes_server
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 _MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
+_FETCH_HOLDINGS_SERVER_NAME = "fetch_holdings"
+
+# Blocked unconditionally, everywhere — not via GuardrailPolicy (that's
+# scoped to the no-order-execution guarantee only): a full account's
+# get_holdings result can exceed the size a raw tool result can carry
+# (issue #46), silently dropping the whole call. fetch_holdings
+# (engine/holdings_fetch.py) is the only path to holdings data now; it
+# reuses kite_gateway's own get_holdings under the hood, in-process, so
+# Layer 1 itself is unchanged and still a faithful, complete proxy.
+_ALWAYS_DISALLOWED_TOOLS = ("mcp__kite_gateway__get_holdings",)
 
 # vision.md §8's own requirement: state the read-only guarantee inline, at
 # the moment a user is asked to connect their account, not buried in a docs
@@ -94,7 +105,7 @@ _MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
 # nothing from Minty itself. This fires from `system_prompt` rather than a
 # skill's own SKILL.md because the login prompt can be triggered without
 # any skill matching at all (an ad hoc "what are my holdings" goes straight
-# through `kite_gateway.get_holdings`).
+# through `fetch_holdings` — see engine/holdings_fetch.py, issue #46).
 _KITE_LOGIN_SYSTEM_PROMPT = (
     "Whenever you present a Kite/Zerodha login link to the user — whether "
     "you're running a skill or just answering an ad hoc question that "
@@ -316,6 +327,10 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     mcp_servers[_WORKSPACE_NOTES_SERVER_NAME] = build_workspace_notes_server()
     # Same unconditional treatment, same reason — issue #14 piece 2.
     mcp_servers[_MEMORY_CANDIDATES_SERVER_NAME] = build_memory_candidate_server()
+    # Same unconditional treatment — every session needs the safe holdings
+    # path available, since kite_gateway's own get_holdings is disallowed
+    # below (issue #46).
+    mcp_servers[_FETCH_HOLDINGS_SERVER_NAME] = build_fetch_holdings_server()
     if tools.include_staged_tools and staged_skill_names:
         staged_workflows_server = build_staged_workflow_tools_server(staged_skill_names, tools)
         if staged_workflows_server is not None:
@@ -336,7 +351,10 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
         # repo found with skills="all" pulling in host-level skills. This
         # scopes strictly to the mcp_servers dict passed in, nothing else.
         "strict_mcp_config": True,
-        "disallowed_tools": list(tools.guardrail.denied_tool_names(server_names)),
+        "disallowed_tools": [
+            *tools.guardrail.denied_tool_names(server_names),
+            *_ALWAYS_DISALLOWED_TOOLS,
+        ],
         "hooks": {
             "PreToolUse": [
                 HookMatcher(

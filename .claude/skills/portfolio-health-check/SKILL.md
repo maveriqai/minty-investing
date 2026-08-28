@@ -55,11 +55,13 @@ regardless of which broker it came from.
      a conversation.
 
    Currently `kite_gateway` is the only connected broker — call
-   `kite_gateway.get_holdings` (read-only by construction: the
-   order-placing/-modifying tools aren't in `kite_gateway`'s tool surface
-   at all, see docs/vision.md §5). The engine automatically saves the raw
-   result to `data/holdings_<YYYY-MM-DD>.json` in the workspace as soon as
-   the call returns — no separate save step.
+   `fetch_holdings(workspace_root=...)`, not `kite_gateway.get_holdings`
+   directly (that raw tool is blocked — see issue #46: a full account's
+   holdings can exceed the size a raw tool result can carry).
+   `fetch_holdings` fetches and saves `data/holdings_<YYYY-MM-DD>.json` in
+   one step and reports back only a holdings count, never the holdings
+   themselves — no separate save step, and nothing to read from its
+   response.
 
 3. **Run the computation, not the model** — call the `run_health_check`
    tool (not Bash) with `workspace_root` set to the exact active-workspace
@@ -106,8 +108,9 @@ regardless of which broker it came from.
 ## Guardrails
 
 - Never call Kite's order-placing/modifying tools — they aren't in
-  `kite_gateway`'s tool surface at all; only read-only calls
-  (`get_holdings`, `get_positions`, `get_quotes`) are possible.
+  `kite_gateway`'s tool surface at all; only read-only calls are possible.
+  Fetch holdings via `fetch_holdings`, not `kite_gateway.get_holdings`
+  directly — that raw tool is blocked (issue #46).
 - Never compute P&L, weight, or volatility by LLM arithmetic — always
   through `scripts/health_check.py` / `scripts/volatility.py` or an
   equivalent one-off script, never inline reasoning.

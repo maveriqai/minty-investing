@@ -19,9 +19,14 @@ from pathlib import Path
 
 
 def _unwrap_envelope(payload: object) -> object:
-    """Unwrap a {"source","as_of","data"} envelope if present; already-bare data passes through unchanged."""
+    """Unwrap a {"source","as_of","data"} envelope if present, then a further
+    {"symbol","from","to","bars"} layer (india_price.get_daily_ohlcv's own
+    `data` shape) down to the bare bars list. Already-bare bars pass through
+    unchanged."""
     if isinstance(payload, dict) and "data" in payload:
-        return payload["data"]
+        payload = payload["data"]
+    if isinstance(payload, dict) and "bars" in payload:
+        payload = payload["bars"]
     return payload
 
 
