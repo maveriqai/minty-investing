@@ -27,7 +27,7 @@ from typing import Any
 
 from engine import skills
 from engine.harnesses.base import Harness, ToolConfig
-from engine.sources_footer import build_footer
+from engine.sources_footer import DISCLAIMER, build_footer
 from engine.tool_capture import today_ist
 from engine.workspace import augment_prompt_with_workspace
 
@@ -196,8 +196,18 @@ def compose_and_save(
     A no-op past the footer-append if `final_text` is blank, or if the
     skill declares no `.md` expected output — mirrors
     `engine/interactive.py`'s `_save_composed_outputs`.
+
+    Skips appending the footer at all if `final_text` already contains our
+    own `DISCLAIMER` text — i.e. the compose stage wrote a closing
+    footer/disclaimer of its own despite the skill's `SKILL.md` saying not
+    to. That instruction isn't reliably followed (issue #27 found the same
+    class of unreliable prose-only compliance already documented for #31),
+    so this is the structural backstop: better a stray self-authored
+    footer than a visible duplicate of the real one.
     """
-    footer = build_footer(all_captures, as_of=today_ist(), workspace_root=workspace_root)
+    footer = "" if DISCLAIMER in final_text else build_footer(
+        all_captures, as_of=today_ist(), workspace_root=workspace_root
+    )
     full_text = final_text + footer
     if not full_text.strip():
         return full_text

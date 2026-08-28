@@ -114,6 +114,35 @@ def test_send_appends_sources_footer_when_workspace_root_set_and_something_captu
     ]
 
 
+def test_send_skips_footer_when_model_already_wrote_the_disclaimer(tmp_path):
+    """Every skill's SKILL.md says not to compose its own closing footer —
+    but that's a prose instruction the model doesn't reliably follow
+    (issue #27, live-verified: a real thesis-tracker run still wrote its
+    own disclaimer despite the updated wording). Appending the engine's own
+    footer on top would just create the exact visible duplicate #27 is
+    about, so a self-authored disclaimer must suppress the engine's own,
+    not stack with it."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[
+            TextBlock(text=f"Thesis saved.\n\n---\n{DISCLAIMER}\n\n**Sources:** india_price.get_quote"),
+            ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "x", "as_of": "2026-08-18", "data": []}')
+        ]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "track a thesis", workspace_root=tmp_path)
+
+    full_text = "".join(chunks)
+    assert full_text.count(DISCLAIMER) == 1
+    assert full_text.count("**Sources") == 1
+
+
 def test_send_appends_no_footer_when_nothing_captured(tmp_path):
     messages = [
         AssistantMessage(content=[TextBlock(text="just chatting")]),
@@ -240,6 +269,25 @@ def test_send_records_budgeted_tool_calls_and_reports_when_over_budget():
     assert len(session.last_over_budget) == 1
     assert "india_news.get_news" in session.last_over_budget[0]
     assert "2 times" in session.last_over_budget[0]
+
+
+def test_send_separates_consecutive_text_chunks_with_a_blank_line():
+    """A turn's narration commonly spans several separate TextBlocks
+    interleaved with tool calls (e.g. "Anchor exists." ... tool call ...
+    "Identity matches."). Concatenating them with no separator glues them
+    together mid-sentence live in the terminal and in the saved transcript
+    (issue #28) — each chunk after the first must start on its own line."""
+    messages = [
+        AssistantMessage(content=[TextBlock(text="Anchor exists.")]),
+        AssistantMessage(content=[TextBlock(text="Identity matches.")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "check identity")
+
+    assert chunks == ["Anchor exists.", "\n\nIdentity matches."]
+    assert "".join(chunks) == "Anchor exists.\n\nIdentity matches."
 
 
 def test_send_yields_staged_tool_result_verbatim_and_suppresses_later_model_text(tmp_path):

@@ -73,13 +73,14 @@ stages:
       - "{workspace}/results/materiality_flags_{date}.json"
   - id: compose
     instructions: |
-      This is Stage 4 (Compose & save) of this run — steps 9 and 12 in the
-      Steps section above (step 10's save and step 12's Sources footer
-      happen automatically after this stage — write the brief itself, nothing
-      else). Read the result files listed below and compose the morning
-      digest brief per step 9's structure. Any file listed below as missing
-      means that stage failed — say so explicitly in the relevant section
-      instead of omitting it or guessing at its contents.
+      This is Stage 4 (Compose & save) of this run — step 9 in the Steps
+      section above (steps 10 and 12 are both engine-automatic after this
+      stage — the save, and separately the Sources footer + disclaimer —
+      so write only the brief itself, with no footer or disclaimer of your
+      own; see step 12). Read the result files listed below and compose the
+      morning digest brief per step 9's structure. Any file listed below as
+      missing means that stage failed — say so explicitly in the relevant
+      section instead of omitting it or guessing at its contents.
     needs:
       - "{workspace}/results/digest_{date}.json"
       - "{workspace}/results/surveillance_flags_{date}.json"
@@ -377,9 +378,9 @@ exist).
 10. **A copy of the composed brief is saved automatically** — once
     `results/digest_<date>.json` exists (step 6) and this turn's reply
     text is complete, the engine writes it verbatim to
-    `results/digest_<date>.md`, including the Sources footer (step 12).
-    No separate save step; nothing to do here beyond composing the brief
-    itself well.
+    `results/digest_<date>.md`, with the engine's own Sources footer (step
+    12) already appended to it. No separate save step; nothing to do here
+    beyond composing the brief itself well.
 
 11. **Do not write digest content into the workspace's notes.md.** Prices,
     day moves, and FII/DII flow are exactly the kind of ephemeral,
@@ -392,14 +393,14 @@ exist).
     as portfolio-health-check's step 5 — it always saves to the workspace's
     `notes.md`, never a different filename.
 
-12. **Close with a Sources footer** (tool + as-of date for every figure,
-    including the computed-file path — for portfolio figures, cite both
-    `data/holdings_<date>.json` (quantity/avg_price) and
-    `data/live_quotes_<date>.json` (prices)); also cite
-    `india_filings.get_announcements` and `india_news.get_news` (bounded
-    set, date) and `results/materiality_flags_<date>.json` if the "What
-    needs attention" section is present. Close with the exact SEBI
-    disclaimer from docs/vision.md §5.
+12. **Don't write your own Sources footer or SEBI disclaimer.** The engine
+    appends both automatically — built from whatever was actually captured
+    across this run — once your reply text is complete, and that same
+    footer is what step 10 saves into `results/digest_<date>.md`. Writing
+    one yourself just duplicates it (issue #27); the engine's footer
+    already covers every captured tool call (holdings, live quotes,
+    announcements, news, surveillance, materiality) with no help needed
+    from your own prose to enumerate them.
 
 ## Guardrails
 

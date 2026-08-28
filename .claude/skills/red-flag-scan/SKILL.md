@@ -106,9 +106,10 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    a verdict, and it can trip for a genuinely one-off bad year as easily as
    real deterioration.
 
-6. **Close with a Sources footer** (every tool call + as-of date, plus the
-   `results/red_flags_<SYMBOL>_<date>.json` path) and the exact SEBI
-   disclaimer from docs/vision.md §5.
+6. **Don't write your own Sources footer or SEBI disclaimer.** The engine
+   appends both automatically — built from whatever was actually captured
+   this turn — once your reply text is complete. Writing one yourself just
+   duplicates it (issue #27).
 
 ## Guardrails
 

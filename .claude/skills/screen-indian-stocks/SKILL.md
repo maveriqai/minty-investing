@@ -116,12 +116,10 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    (symbol, name, P/E, ROE with its `roe_source` noted — e.g. "ROE 13.1%
    (Screener.in)" — leverage flag, last price/day change, any red-flag
    annotations from step 6), then the `excluded` list with reasons if the
-   user asks why a name they expected isn't ranked. Close with a Sources
-   footer (instruments-master as-of from `list_candidates.py`'s `source`
-   field, every `get_fundamentals`/`get_quote`/`get_news` as-of date —
-   both india_price's and india_screener's, when the latter was called —
-   both `results`/`data` file paths) and the exact SEBI disclaimer from
-   docs/vision.md §5.
+   user asks why a name they expected isn't ranked. Don't write your own
+   Sources footer or SEBI disclaimer — the engine appends both
+   automatically once your reply text is complete. Writing one yourself
+   just duplicates it (issue #27).
 
 ## Guardrails
 

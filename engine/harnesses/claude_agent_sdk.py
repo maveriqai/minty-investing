@@ -72,7 +72,7 @@ from engine.harnesses.base import EngineResult, ToolConfig
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
-from engine.sources_footer import build_footer
+from engine.sources_footer import DISCLAIMER, build_footer
 from engine.staged_skill_tools import (
     STAGED_WORKFLOWS_SERVER_NAME,
     build_staged_workflow_tools_server,
@@ -447,13 +447,20 @@ class ClaudeSession:
 
         Also mechanically appends a Sources footer + the SEBI disclaimer
         (see engine/sources_footer.py) once the turn's own text is fully
-        streamed, if `workspace_root` is set and this turn captured at
-        least one file — docs/vision.md §5 requires both on every grounded
-        output, and live-testing found the model reliably didn't write
-        either on its own (the same class of dropped-closing-step failure
-        `update_workspace_notes` fixed for notes.md). A turn that captured
-        nothing (plain chat, a workspace-less turn) gets no footer — see
-        `build_footer`'s own docstring.
+        streamed, if `workspace_root` is set, this turn captured at least
+        one file, and the model's own text doesn't already contain one —
+        docs/vision.md §5 requires both on every grounded output.
+        Originally added because live-testing found the model reliably
+        didn't write either on its own (the same class of dropped-closing-
+        step failure `update_workspace_notes` fixed for notes.md); every
+        skill's SKILL.md was later updated to explicitly say not to write
+        one (issue #27, since appending on top of a self-authored one just
+        duplicates it) — but that's prose, and prose isn't reliably
+        followed either direction (issue #31 found the same), so this
+        checks for the model's own disclaimer text and skips the append
+        rather than trusting the instruction alone. A turn that captured
+        nothing (plain chat, a workspace-less turn) gets no footer either
+        way — see `build_footer`'s own docstring.
 
         Resets this session's per-turn tool-call counter (see
         engine/tool_budget.py) before sending — a skill's declared call
@@ -484,14 +491,42 @@ class ClaudeSession:
         pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
         captures: list[tuple[str, str, Path]] = []
         staged_output: str | None = None
+        # Every yield below lands in the same concatenated stream — printed
+        # verbatim, back to back, by interactive.py's `print(chunk, end="")`
+        # and joined the same way for the saved transcript. A turn can
+        # legitimately span several separate AssistantMessages (narration
+        # before one tool-call round, then more narration after the next),
+        # and nothing guarantees the first ends in whitespace before the
+        # next begins, so without a separator they glue together mid-sentence
+        # ("holdings.Identity matches...", issue #28). Every message's first
+        # chunk gets a blank-line prefix once a prior chunk has already been
+        # yielded — but only at that message boundary, not between two
+        # TextBlocks *within* the same AssistantMessage.content, which can
+        # legitimately be adjacent streamed fragments of one continuous
+        # sentence (see test_claude_session_yields_text_blocks_in_order_and_
+        # records_success's "Hi " + "there" case) that must concatenate
+        # directly. `build_footer` already opens with its own "\n\n---\n" so
+        # it doesn't need this prefix either way.
+        first_chunk = True
+        # Accumulates this turn's own (non-staged) text as it's yielded, so
+        # the footer-appending check below can tell whether the model
+        # already closed with its own disclaimer despite its skill's
+        # `SKILL.md` saying not to — see that check's own comment.
+        emitted_parts: list[str] = []
         async for message in self._client.receive_response():
             kind = type(message).__name__
             if kind == "AssistantMessage":
+                message_start = True
                 for block in message.content:
                     block_kind = type(block).__name__
                     if block_kind == "TextBlock":
                         if staged_output is None:
-                            yield block.text
+                            needs_separator = message_start and not first_chunk
+                            chunk = f"\n\n{block.text}" if needs_separator else block.text
+                            yield chunk
+                            emitted_parts.append(chunk)
+                            first_chunk = False
+                            message_start = False
                     elif block_kind == "ToolUseBlock":
                         pending_tool_calls[block.id] = (block.name, block.input)
                         self._budget_tracker.record(block.name)
@@ -508,7 +543,8 @@ class ClaudeSession:
                         text = _tool_result_text(block.content)
                         if text is not None:
                             staged_output = text
-                            yield text
+                            yield text if first_chunk else f"\n\n{text}"
+                            first_chunk = False
                         continue
                     if workspace_root is None:
                         continue
@@ -532,7 +568,15 @@ class ClaudeSession:
 
         self.last_captures = captures
         self.last_over_budget = self._budget_tracker.over_budget()
-        if staged_output is None and workspace_root is not None and captures:
+        # Every skill's SKILL.md now says not to write a closing footer/
+        # disclaimer itself (issue #27) — but that's a prose instruction,
+        # and this codebase has already found (issue #31) that prose
+        # instructions aren't reliably followed either direction. This is
+        # the structural backstop: if the model wrote one anyway, appending
+        # a second, correct one on top would still be a visible duplicate
+        # — skip it rather than stack it.
+        already_has_disclaimer = DISCLAIMER in "".join(emitted_parts)
+        if staged_output is None and workspace_root is not None and captures and not already_has_disclaimer:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
                 yield footer

@@ -213,6 +213,41 @@ def test_compose_and_save_writes_footer_and_md_output(tmp_path, monkeypatch):
     assert saved.read_text() == full_text
 
 
+def test_compose_and_save_skips_footer_when_final_text_already_has_the_disclaimer(tmp_path, monkeypatch):
+    """The compose stage's own SKILL.md instructions say not to write a
+    closing footer/disclaimer (issue #27) — but that's prose, not reliably
+    followed (issue #31). If the compose stage wrote one anyway, appending
+    the real one on top would be the exact visible duplicate #27 is about."""
+    import engine.skills as skills_module
+    from engine.sources_footer import DISCLAIMER
+
+    skills_root = tmp_path / ".claude" / "skills"
+    skill_dir = skills_root / "morning-digest"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: morning-digest\ndescription: test\n'
+        'expected_outputs:\n  - "{workspace}/results/digest_{date}.md"\n---\n'
+    )
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
+
+    workspace_root = tmp_path / "workspaces" / "daily"
+    (workspace_root / "results").mkdir(parents=True)
+    (workspace_root / "data").mkdir(parents=True)
+
+    final_text = f"# Digest\nAll good.\n\n---\n{DISCLAIMER}\n"
+    full_text = staged_skills.compose_and_save(
+        final_text,
+        [("india_price", "get_quote", workspace_root / "data" / "live_quotes.json")],
+        skill_name="morning-digest",
+        workspace_root=workspace_root,
+    )
+
+    assert full_text == final_text
+    assert full_text.count(DISCLAIMER) == 1
+    assert "**Sources**" not in full_text
+
+
 def test_compose_and_save_is_a_noop_when_final_text_is_blank(tmp_path, monkeypatch):
     import engine.skills as skills_module
 

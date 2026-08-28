@@ -147,9 +147,10 @@ tool, never eyeballed.
    re-raise it unprompted next session; just make the updated scorecard
    available if they ask.
 
-7. **Close every output with a Sources footer** (tool + as-of date for
-   every figure used, including the computed-file path) and the exact
-   SEBI disclaimer from docs/vision.md §5.
+7. **Don't write your own Sources footer or SEBI disclaimer.** The engine
+   appends both automatically — built from whatever was actually captured
+   this turn — once your reply text is complete. Writing one yourself just
+   duplicates it (issue #27).
 
 ## Guardrails
 
