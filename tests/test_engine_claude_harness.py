@@ -353,6 +353,106 @@ def test_run_threads_workspace_root_and_folds_the_footer_into_the_returned_text(
     assert "india_price" in result.text
 
 
+def test_send_records_completed_denied_and_no_result_tool_calls(monkeypatch, tmp_path):
+    # Issue #47: a denied/error ToolResultBlock used to be dropped on the
+    # spot (`if ... or block.is_error: continue`) before anything looked at
+    # it — this proves last_tool_calls now records every attempted call,
+    # correctly distinguishing all three outcomes, and never carries a full
+    # oversized result (the #46 lesson).
+    @dataclass
+    class ToolUseBlock:
+        id: str
+        name: str
+        input: dict
+
+    @dataclass
+    class ToolResultBlock:
+        tool_use_id: str
+        content: object = None
+        is_error: bool | None = None
+
+    @dataclass
+    class AssistantMessage:
+        content: list
+
+    @dataclass
+    class UserMessage:
+        content: list
+
+    @dataclass
+    class ResultMessage:
+        subtype: str
+        result: str | None = None
+
+    large_payload = '{"data": [' + ",".join(f'{{"tradingsymbol": "STOCK{i}"}}' for i in range(500)) + "]}"
+    messages = [
+        AssistantMessage(
+            content=[
+                ToolUseBlock(id="ok", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]}),
+                ToolUseBlock(id="denied", name="mcp__kite_gateway__place_order", input={"symbol": "RELIANCE"}),
+                ToolUseBlock(id="stuck", name="mcp__india_price__get_quote", input={"symbols": ["TCS"]}),
+            ]
+        ),
+        UserMessage(
+            content=[
+                ToolResultBlock(tool_use_id="ok", content=large_payload),
+                ToolResultBlock(
+                    tool_use_id="denied",
+                    content="Order execution is never permitted — see docs/vision.md §5.",
+                    is_error=True,
+                ),
+            ]
+        ),
+        ResultMessage(subtype="success", result="done"),
+    ]
+
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            for message in messages:
+                yield message
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+    workspace_root = tmp_path / "ws"
+    (workspace_root / "data").mkdir(parents=True)
+
+    async def _run():
+        async with cas.ClaudeAgentSDKHarness().open_session(
+            ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+        ) as session:
+            async for _ in session.send("do stuff", workspace_root=workspace_root):
+                pass
+            return session.last_tool_calls
+
+    tool_calls = asyncio.run(_run())
+    by_id = {record["tool_use_id"]: record for record in tool_calls}
+
+    assert by_id["ok"]["status"] == "completed"
+    assert by_id["ok"]["is_error"] is False
+    assert by_id["ok"]["result_length"] == len(large_payload)
+    assert len(by_id["ok"]["result_preview"]) <= 200
+    assert "STOCK499" not in by_id["ok"]["result_preview"]  # never the full payload
+
+    assert by_id["denied"]["status"] == "error"
+    assert by_id["denied"]["is_error"] is True
+    assert "Order execution is never permitted" in by_id["denied"]["result_preview"]
+
+    assert by_id["stuck"]["status"] == "no_result"
+    assert by_id["stuck"]["is_error"] is None
+    assert by_id["stuck"]["result_preview"] is None
+
+
 def test_deny_hook_denies_order_tools_and_allows_safe_tools():
     policy = GuardrailPolicy()
     hook = cas._build_deny_hook(policy)

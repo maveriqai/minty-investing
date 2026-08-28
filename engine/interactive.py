@@ -22,6 +22,7 @@ from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
 from engine.memory_candidates import candidates_path, read_and_clear
 from engine.session_transcript import append_turn, new_transcript_path
+from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import (
     FIXED_WATCH_ROOTS,
     REPO_ROOT,
@@ -178,6 +179,7 @@ async def _run_turn(
     skill_names: list[str] | None = None,
     transcript_path: Path | None = None,
     transcript_speaker: str = "you",
+    audit_log_path: Path | None = None,
 ) -> None:
     before = snapshot_all(FIXED_WATCH_ROOTS)
     sent = _augment_with_workspace(prompt, workspace_root) if workspace_root is not None else prompt
@@ -203,6 +205,22 @@ async def _run_turn(
             # Audit-only side effect — must never take the primary REPL
             # down with it (found in review of #13).
             print(f"[transcript] couldn't write to {transcript_path}: {exc}", file=sys.stderr)
+    last_tool_calls = getattr(session, "last_tool_calls", [])
+    if audit_log_path is not None:
+        try:
+            append_tool_calls(audit_log_path, last_tool_calls)
+        except OSError as exc:
+            # Same audit-only, never-take-down-the-REPL guarantee as the
+            # transcript write above (issue #47).
+            print(f"[audit] couldn't write to {audit_log_path}: {exc}", file=sys.stderr)
+    for record in last_tool_calls:
+        if record["status"] == "error":
+            # Immediate, live visibility — not just on later review of the
+            # JSONL — the moment a tool call comes back denied or errored
+            # (e.g. a guardrail's permissionDecisionReason). Deliberately
+            # only errors, not every call: a heavy turn can have 70+ tool
+            # calls, and the full record is already in audit_log_path.
+            print(f"[audit] tool error: {record['tool_name']} — {record['result_preview']}")
     for line in getattr(session, "last_over_budget", []):
         print(f"[budget] {line}")
     today = datetime.now(_IST).date().isoformat()
@@ -221,8 +239,14 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
     skill_names = tools.skills if isinstance(tools.skills, list) else []
     # Fixed once per REPL process, not re-derived per turn — see
     # engine/session_transcript.py's docstring for why (one file per
-    # session, not one per turn).
-    transcript_path = new_transcript_path(workspace_root)
+    # session, not one per turn). Both paths below share one `now` rather
+    # than each defaulting to its own `datetime.now(_IST)` call, so the
+    # transcript and its sibling tool-call audit log (issue #47) share the
+    # exact same session timestamp instead of two calls that could
+    # theoretically land a second apart.
+    session_started_at = datetime.now(_IST)
+    transcript_path = new_transcript_path(workspace_root, now=session_started_at)
+    audit_log_path = new_audit_log_path(workspace_root, now=session_started_at)
     print("Minty — connected. Type a message, 'exit' to quit.")
     async with harness.open_session(tools) as session:
         # Issue #14, piece 3 — anything staged by stage_memory_candidate
@@ -260,6 +284,7 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
                     skill_names=skill_names,
                     transcript_path=transcript_path,
                     transcript_speaker="system",
+                    audit_log_path=audit_log_path,
                 )
             except Exception as exc:  # noqa: BLE001
                 # Deliberately broad, not a narrower type: ClaudeSession.send
@@ -293,6 +318,7 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
                 workspace_root=workspace_root,
                 skill_names=skill_names,
                 transcript_path=transcript_path,
+                audit_log_path=audit_log_path,
             )
     return 0
 

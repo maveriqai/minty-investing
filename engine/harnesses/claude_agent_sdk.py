@@ -58,6 +58,7 @@ with `skills="all"` pulling in host-level skills.
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -78,6 +79,7 @@ from engine.staged_skill_tools import (
     STAGED_WORKFLOWS_SERVER_NAME,
     build_staged_workflow_tools_server,
 )
+from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.tool_budget import TurnBudgetTracker, build_budget_tracker
 from engine.tool_capture import parse_mcp_tool_name, save_tool_result, today_ist
 from engine.workspace_notes import build_workspace_notes_server
@@ -444,6 +446,48 @@ def _tool_result_text(content: Any) -> str | None:
     return "".join(parts) if parts else None
 
 
+# Issue #47: a tool-call audit record never carries the full result text —
+# only a short preview and its length. The real payload already goes to
+# `workspace/data/` via `save_tool_result` for the tools that matter;
+# re-logging it in full here would reintroduce exactly what issue #46
+# fixed (an uncontrolled-size payload held/passed around), for every tool
+# instead of just holdings.
+_RESULT_PREVIEW_MAX_CHARS = 200
+
+
+def _tool_call_record(
+    tool_use_id: str,
+    tool_name: str,
+    tool_input: dict[str, Any],
+    *,
+    matched: bool,
+    is_error: bool | None,
+    text: str | None,
+) -> dict[str, Any]:
+    """One line of the tool-call audit log. `matched=False` means no
+    `ToolResultBlock` ever arrived for this call by the time the turn's
+    stream ended (`status="no_result"`) — kept separate from `is_error`,
+    since a real `ToolResultBlock.is_error` is itself `None` on an
+    ordinary success (the SDK's own default), not just on a missing
+    result; conflating the two previously misclassified every successful
+    call as `"no_result"`."""
+    if not matched:
+        status = "no_result"
+    elif is_error:
+        status = "error"
+    else:
+        status = "completed"
+    return {
+        "tool_use_id": tool_use_id,
+        "tool_name": tool_name,
+        "tool_input": tool_input,
+        "status": status,
+        "is_error": bool(is_error) if matched else None,
+        "result_preview": text[:_RESULT_PREVIEW_MAX_CHARS] if text is not None else None,
+        "result_length": len(text) if text is not None else None,
+    }
+
+
 class ClaudeSession:
     """Wraps a connected `ClaudeSDKClient` — multi-turn, holds conversation
     state across calls to `send()` for as long as the session stays open.
@@ -455,6 +499,7 @@ class ClaudeSession:
         self.last_result: EngineResult | None = None
         self.last_captures: list[tuple[str, str, Path]] = []
         self.last_over_budget: list[str] = []
+        self.last_tool_calls: list[dict[str, Any]] = []
 
     async def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
         """`workspace_root`, when given, turns on auto-capture: every Layer-2
@@ -488,6 +533,14 @@ class ClaudeSession:
         budgeted tools, if any, ran over — an audit signal, not
         enforcement (see engine/tool_budget.py's docstring for why).
 
+        `last_tool_calls` after the turn holds one record per tool call
+        attempted this turn — name, input, and a short status (completed/
+        error/no_result), never the full result text (issue #47). This is
+        every call, allowed or denied, unlike `last_captures` above which
+        only ever reflects known, successful, capture-worthy results.
+        Callers with a `workspace_root` write this to a durable per-session
+        audit log (engine/tool_audit.py); this method only collects it.
+
         A `run_staged_<skill>` call (see engine/staged_skill_tools.py) gets
         special handling: its own returned text already *is* the finished,
         fully-composed result — `engine/staged_skills.py`'s
@@ -508,6 +561,7 @@ class ClaudeSession:
         await self._client.query(prompt)
         pending_tool_calls: dict[str, tuple[str, dict[str, Any]]] = {}
         captures: list[tuple[str, str, Path]] = []
+        tool_calls: list[dict[str, Any]] = []
         staged_output: str | None = None
         # Every yield below lands in the same concatenated stream — printed
         # verbatim, back to back, by interactive.py's `print(chunk, end="")`
@@ -550,15 +604,37 @@ class ClaudeSession:
                         self._budget_tracker.record(block.name)
             elif kind == "UserMessage":
                 for block in getattr(message, "content", None) or []:
-                    if type(block).__name__ != "ToolResultBlock" or block.is_error:
+                    if type(block).__name__ != "ToolResultBlock":
                         continue
-                    call = pending_tool_calls.get(block.tool_use_id)
+                    # Popped, not just read — issue #47: whatever's left in
+                    # pending_tool_calls once the stream ends never got a
+                    # result at all, and becomes its own "no_result" audit
+                    # record below.
+                    call = pending_tool_calls.pop(block.tool_use_id, None)
                     if call is None:
                         continue
                     tool_name, tool_input = call
+                    text = _tool_result_text(block.content)
+                    tool_calls.append(
+                        _tool_call_record(
+                            block.tool_use_id,
+                            tool_name,
+                            tool_input,
+                            matched=True,
+                            is_error=block.is_error,
+                            text=text,
+                        )
+                    )
+                    if block.is_error:
+                        # Issue #46's untrustworthy-capture guard and the
+                        # staged-workflow branch below are both only ever
+                        # meaningful for a real, successful result — an
+                        # error/denied result (e.g. a PreToolUse hook's
+                        # permissionDecisionReason) has nothing further to
+                        # process once it's in the audit record above.
+                        continue
                     parsed = parse_mcp_tool_name(tool_name)
                     if parsed is not None and parsed[0] == STAGED_WORKFLOWS_SERVER_NAME:
-                        text = _tool_result_text(block.content)
                         if text is not None:
                             staged_output = text
                             yield text if first_chunk else f"\n\n{text}"
@@ -566,7 +642,6 @@ class ClaudeSession:
                         continue
                     if workspace_root is None:
                         continue
-                    text = _tool_result_text(block.content)
                     if text is None:
                         continue
                     saved_path = save_tool_result(tool_name, tool_input, text, workspace_root)
@@ -584,7 +659,17 @@ class ClaudeSession:
                         ok=False, text=None, error_kind=message.subtype, raw=message
                     )
 
+        # Issue #47: any ToolUseBlock still here never got a matching
+        # ToolResultBlock before the turn's stream ended — a genuinely
+        # unusual case (e.g. the turn was interrupted mid-call), logged as
+        # its own status rather than silently dropped.
+        for tool_use_id, (tool_name, tool_input) in pending_tool_calls.items():
+            tool_calls.append(
+                _tool_call_record(tool_use_id, tool_name, tool_input, matched=False, is_error=None, text=None)
+            )
+
         self.last_captures = captures
+        self.last_tool_calls = tool_calls
         self.last_over_budget = self._budget_tracker.over_budget()
         # Every skill's SKILL.md now says not to write a closing footer/
         # disclaimer itself (issue #27) — but that's a prose instruction,
@@ -633,6 +718,15 @@ class ClaudeAgentSDKHarness:
         `ClaudeSession.send`'s own docstring). Accumulating chunks is what
         `engine/interactive.py`'s `_run_turn` already does for the same
         reason.
+
+        Also writes this one turn's tool-call audit log (issue #47) when
+        `workspace_root` is set — each single-shot call gets its own audit
+        file, named by its own start time (there's no shared multi-turn
+        session timestamp to reuse here, unlike `_repl`). Written before
+        the result-status checks below so a failed turn's tool-call trail
+        is still captured, not just a successful one's — arguably more
+        useful for the unattended/scheduled runs this path is built for,
+        since nobody's watching stdout there to notice a diagnostic line.
         """
         try:
             async with self.open_session(tools) as session:
@@ -641,6 +735,14 @@ class ClaudeAgentSDKHarness:
                     chunks.append(chunk)
                 for line in session.last_over_budget:
                     print(f"[budget] {line}")
+                if workspace_root is not None:
+                    try:
+                        append_tool_calls(new_audit_log_path(workspace_root), session.last_tool_calls)
+                    except OSError as exc:
+                        # Audit-only side effect — must never take the
+                        # primary run down with it (same convention as
+                        # engine/interactive.py's transcript-write guard).
+                        print(f"[audit] couldn't write tool-call log: {exc}", file=sys.stderr)
                 result = session.last_result
                 if result is None:
                     return EngineResult(ok=False, text=None, error_kind="no_result", raw=None)
