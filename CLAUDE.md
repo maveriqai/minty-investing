@@ -235,7 +235,7 @@ reference.)
   git-ignored · `tests/` mirrors the above, one `test_*.py` per module ·
   `docs/` product/design docs (`vision.md`, `skills.md`,
   `screener-integration-design.md`, `staged-skill-execution-design.md`,
-  `next-phase-plan.md`).
+  `next-phase-plan.md`, `investing-workflow-roadmap.md`).
 
 ## Open Items
 
