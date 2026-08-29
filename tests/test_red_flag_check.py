@@ -134,6 +134,24 @@ def test_announcement_keyword_match_change_in_directors():
     assert any(f["category"] == "announcement_keyword" for f in result["flags"])
 
 
+def test_matches_keyword_rejects_mid_word_embedding_but_allows_suffix():
+    # Issue #32's root cause, transplanted to this module's own matcher:
+    # plain substring containment let a short keyword match mid-word (e.g.
+    # "sues" inside "Issues" in sector_materiality.py's Litigation signal).
+    # Left-boundary-only matching must reject that while still allowing an
+    # intended suffix match like "fraud" -> "fraudulent".
+    assert rfc._matches_keyword("default", "a nondefault clause") is False  # "default" embedded mid-word
+    assert rfc._matches_keyword("default", "the company is in default") is True
+    assert rfc._matches_keyword("fraud", "auditor flags a fraudulent transaction") is True
+
+
+def test_announcement_keyword_still_matches_suffix_variant_fraudulent():
+    # Left-boundary-only matching must not regress "fraud" -> "fraudulent".
+    announcements = _envelope([{"desc": "Auditor flags a fraudulent transaction", "attchmntText": ""}])
+    result = rfc.compute(symbol="STOCKA", announcements=announcements)
+    assert any(f["category"] == "announcement_keyword" for f in result["flags"])
+
+
 def test_fundamentals_high_leverage_and_liquidity_stress():
     # debt_to_equity is yfinance's percentage convention (verified against RELIANCE
     # reading 36.653 in prod, not a raw ratio) — 250 here means D/E ratio 2.5x.

@@ -35,6 +35,7 @@ the way tests/test_india_price.py imports server.py — `sys.path.insert(0,
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -145,7 +146,7 @@ SECTOR_SIGNALS: dict[str, list[dict[str, Any]]] = {
         {
             "signal": "Credit growth / margins",
             "keywords": [
-                "credit growth", "loan growth", "casa", "deposit growth", "net interest margin", " nim ",
+                "credit growth", "loan growth", "casa", "deposit growth", "net interest margin", "nim",
                 "disbursement growth", "aum growth", "cost of funds",
             ],
             "severity": "medium",
@@ -475,6 +476,27 @@ GENERIC_SIGNALS: list[dict[str, Any]] = [
 ]
 
 
+def _matches_keyword(keyword: str, haystack: str) -> bool:
+    """Left-word-boundary substring match — the keyword must start at the
+    beginning of a word (not embedded mid-word), but may run into a suffix.
+
+    Plain `kw in haystack` produced a real false positive (issue #32): the
+    "sues" keyword (Litigation) matched inside "Issues" (as in "USFDA
+    Issues 7 Observations..."), misclassifying an unrelated USFDA headline.
+    A strict two-sided `\\bkw\\b` would fix that but also break intended
+    matches like "resign" catching "resigned"/"resignation" and "fraud"
+    catching "fraudulent" — those rely on the keyword being a genuine
+    prefix. Requiring a boundary only on the left (nothing alphanumeric
+    immediately before the match) rejects the "sues"/"Issues" case while
+    keeping the suffix-matching cases intact.
+    """
+    for match in re.finditer(re.escape(keyword), haystack):
+        start = match.start()
+        if start == 0 or not haystack[start - 1].isalnum():
+            return True
+    return False
+
+
 def score_items(
     symbol: str,
     canonical_sector: str | None,
@@ -506,7 +528,7 @@ def score_items(
     for item in items:
         haystack = " ".join(str(item.get(f, "")) for f in text_fields).lower()
         for sig in signals:
-            if any(kw in haystack for kw in sig["keywords"]):
+            if any(_matches_keyword(kw, haystack) for kw in sig["keywords"]):
                 flag = {
                     "symbol": symbol,
                     "signal": sig["signal"],

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -137,12 +138,25 @@ def _check_surveillance(surveillance: dict | None, symbol: str, list_type: str) 
     return flags, True
 
 
+def _matches_keyword(keyword: str, haystack: str) -> bool:
+    """Left-word-boundary substring match — see the identical helper (and
+    its docstring) in mcp/common/sector_materiality.py, issue #32: plain
+    substring containment let short keywords like "sues" match mid-word
+    (inside "Issues"), while a strict two-sided \\b\\b would break intended
+    suffix matches like "resign" catching "resignation"."""
+    for match in re.finditer(re.escape(keyword), haystack):
+        start = match.start()
+        if start == 0 or not haystack[start - 1].isalnum():
+            return True
+    return False
+
+
 def _check_keywords(items: list[dict], text_fields: list[str], category: str) -> list[dict]:
     flags = []
     for item in items:
         haystack = " ".join(str(item.get(f, "")) for f in text_fields).lower()
         for kw in RED_FLAG_KEYWORDS:
-            if kw in haystack:
+            if _matches_keyword(kw, haystack):
                 flags.append(
                     {
                         "category": category,

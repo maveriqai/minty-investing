@@ -100,6 +100,28 @@ def test_score_items_uncovered_sector_falls_back_to_generic():
     assert any(f["signal"] == "Litigation" for f in flags)
 
 
+def test_score_items_does_not_false_positive_match_sues_inside_issues():
+    # Issue #32 — the real CIPLA case: "USFDA Issues 7 Observations..." was
+    # misclassified as Litigation because "sues" is a substring of "Issues".
+    items = [{"title": "USFDA Issues 7 Observations to Cipla's Pithampur Unit"}]
+    flags = sm.score_items("CIPLA", "Healthcare", items, ["title"])
+    assert all(f["signal"] != "Litigation" for f in flags)
+    assert any(f["signal"] == "USFDA action" for f in flags)
+
+
+def test_score_items_still_matches_litigation_for_a_real_standalone_sues():
+    items = [{"title": "Company sues supplier for breach of contract"}]
+    flags = sm.score_items("STOCKA", None, items, ["title"])
+    assert any(f["signal"] == "Litigation" for f in flags)
+
+
+def test_score_items_keyword_still_matches_its_own_suffix_variant():
+    # Left-boundary-only matching must not regress an intended prefix match
+    # like "resign" -> "resigned".
+    resigned = sm.score_items("STOCKA", None, [{"title": "CFO resigned with immediate effect"}], ["title"])
+    assert any(f["signal"] == "Leadership change" for f in resigned)
+
+
 def test_score_items_scores_announcement_fields_too():
     # Announcements use desc/attchmntText, not title (per red_flag_check.py's
     # existing field choice) — score_items must work against those too.
