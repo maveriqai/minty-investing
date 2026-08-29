@@ -36,6 +36,13 @@ deterministic_scripts:
 # engine itself (engine/staged_skills.py's `compose_and_save`), not by a
 # deterministic script inside that stage's own session, so there's nothing
 # on disk to mechanically check right when that stage's session closes.
+# Issue #51: run_staged_morning-digest's own handler
+# (engine/staged_skill_tools.py) calls check_identity_match once,
+# in-process, before stage 1's session ever opens, and returns immediately
+# with a mismatch message if it finds one — zero stage cost. Opt-in and
+# skill-agnostic (engine/skills.py's load_identity_precheck); unset means
+# no precheck, matching every skill before this one.
+identity_precheck: true
 stages:
   - id: portfolio_and_market
     critical: true
@@ -135,7 +142,12 @@ exist).
      below (cite the tool's own `anchor_user_id`/`live_user_id`) — and
      don't call `run_staged_morning-digest` at all; there's no point
      starting a staged run that stage 1's own check will only reject
-     anyway.
+     anyway. Note: you don't strictly have to catch this yourself any
+     more — `run_staged_morning-digest` now runs this exact check itself,
+     in-process, before ever opening stage 1's session
+     (`identity_precheck: true` above, issue #51), and returns immediately
+     with a mismatch message at zero stage cost if it finds one. Catching
+     it here too just reports it one tool call sooner in the same turn.
    - **`"no_anchor"` or `"match"`:** proceed to call
      `run_staged_morning-digest`. (Stage 1 runs in its own fresh session
      with its own identity state — it still does its own

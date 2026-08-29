@@ -24,6 +24,7 @@ to have to reliably prefer).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from claude_agent_sdk import (
@@ -34,8 +35,9 @@ from claude_agent_sdk import (
     tool,
 )
 
-from engine import skills, staged_skills
+from engine import identity_check, skills, staged_skills
 from engine.harnesses.base import ToolConfig
+from engine.kite_identity import IdentityGuardState
 from engine.skill_tools import (
     _WORKSPACE_ROOT_DESCRIPTION,
     _WORKSPACE_ROOT_PARAM,
@@ -55,6 +57,23 @@ _DESCRIPTION_SUFFIX = (
 )
 
 
+def _identity_mismatch_message(precheck: dict[str, Any]) -> str:
+    """Mirrors the mismatch wording each staged skill's own SKILL.md
+    already uses in its stage-1 identity-check step, so a user sees
+    consistent phrasing whether the mismatch is caught here (issue #51,
+    before any stage session opens) or inside a stage's own check."""
+    return (
+        "A different Zerodha account is connected than the one Minty has "
+        f"on record — anchor account {precheck.get('anchor_user_id')!r}, "
+        f"connected account {precheck.get('live_user_id')!r}. Minty is a "
+        "single-account tool by design: this run was stopped before any "
+        "stage opened, so nothing was fetched or overwritten. There's no "
+        "tool call that resolves this — a human has to delete "
+        "data/account_identity.json by hand if the connected account is "
+        "now the correct one."
+    )
+
+
 def _make_staged_tool(skill_name: str, tools: ToolConfig) -> SdkMcpTool[Any]:
     # Deferred import: engine.harnesses.claude_agent_sdk imports this
     # module (to build the staged_workflows server), so a top-level import
@@ -67,6 +86,7 @@ def _make_staged_tool(skill_name: str, tools: ToolConfig) -> SdkMcpTool[Any]:
     description = (skills.load_description(skill_name).strip() + _DESCRIPTION_SUFFIX).strip()
     skill_body = skills.load_skill_body(skill_name)
     stages = skills.load_stages(skill_name)
+    identity_precheck = skills.load_identity_precheck(skill_name)
 
     async def handler(args: dict[str, Any]) -> dict[str, Any]:
         workspace_root = _resolve_workspace_root(args.get(_WORKSPACE_ROOT_PARAM, ""))
@@ -83,6 +103,30 @@ def _make_staged_tool(skill_name: str, tools: ToolConfig) -> SdkMcpTool[Any]:
                 ],
                 "is_error": True,
             }
+
+        if identity_precheck:
+            # Issue #51: catches a confirmed account mismatch before any
+            # stage session opens — zero staged-run cost, deterministic,
+            # no reliance on the model remembering to call this itself.
+            # Calls the SdkMcpTool's own .handler directly — the exact
+            # thing the model's own MCP round trip to check_identity_match
+            # ultimately invokes — bypassing the MCP server/transport layer
+            # entirely, same as how this file's own handler is itself
+            # invoked directly in tests (built.handler({...})). Only
+            # "mismatch" short-circuits: this handler is one atomic call
+            # with no way to pause for user input, so "error" (e.g. no
+            # active Kite session) and "no_anchor"/"match" all fall through
+            # unchanged — stage 1 already has its own graceful fallback for
+            # "no active session", and only a confirmed mismatch has no
+            # such fallback and needs no user judgment call.
+            precheck_tool = identity_check.build_identity_check_tool(IdentityGuardState())
+            result = await precheck_tool.handler({})
+            content = result.get("content") or []
+            text = content[0]["text"] if content else ""
+            precheck = json.loads(text) if not result.get("is_error") else {}
+            if precheck.get("status") == "mismatch":
+                return {"content": [{"type": "text", "text": _identity_mismatch_message(precheck)}]}
+
         harness = ClaudeAgentSDKHarness()
         final_text, all_captures = await staged_skills.run_staged_skill(
             harness, tools, skill_body, stages, workspace_root=workspace_root, date=today_ist()

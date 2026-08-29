@@ -545,6 +545,26 @@ aborts immediately and returns *that stage's own session text* instead of
 continuing to `compose`. See `engine/staged_skills.py::run_staged_skill`'s
 docstring and §9 below for the full mechanism.
 
+**Revised again (2026-08-29, issue #51): a staged skill's own handler can
+now short-circuit before stage 1 ever opens.** `critical: true` (above)
+still requires a stage's own session to actually run before a fatal
+outcome can be detected. But for one specific fatal case — a confirmed
+Zerodha account-identity mismatch — the outcome can be known *before*
+spending any stage's cost at all: `engine/identity_check.py`'s
+`check_identity_match` tool is deterministic and side-effect-free to call
+speculatively. A skill's frontmatter may now declare a top-level (not
+per-stage) `identity_precheck: true`; `_make_staged_tool`'s handler
+(`engine/staged_skill_tools.py`) then calls `check_identity_match`
+in-process, before `run_staged_skill` is invoked at all, and returns
+immediately with a mismatch message if it finds one — zero stage sessions
+opened, zero LLM cost. Live-observed motivating case: the model correctly
+judged identity had already been confirmed earlier in the same top-level
+session and skipped `morning-digest`'s own prose step-0 check accordingly
+— reasonable, but not a guarantee, and prose was never going to be one
+(see #23's parallel finding for the memory-staging pipeline). Deliberately
+narrow: only a *confirmed mismatch* short-circuits this way (see §9's
+2026-08-29 #51 entry for why "no active session" deliberately does not).
+
 **Differentiating staged-workflow tools from ordinary ones.** Since these
 are conceptually different from `run_digest_math`-style tools (long-
 running, many internal sub-calls, one final result — not a quick
@@ -630,6 +650,40 @@ distinction:
     the stronger guarantee (e.g. `surveillance`'s NSE-circuit-open case,
     still a soft, continuable failure). `morning-digest`'s stage 1 is the
     only stage marked `critical` today.
+- **A skill's own prose fail-fast step (e.g. "check identity before
+  triggering the staged run") isn't reliably followed by the model** —
+  **Decided (2026-08-29, issue #51):** live-observed: the model skipped
+  `morning-digest`'s step-0 identity precheck entirely, having reasonably
+  (but not guaranteed-reliably) inferred from earlier context in the same
+  session that identity was already confirmed. Not a safety gap — stage
+  1's own `critical: true` check (above) already guarantees the actual
+  data-integrity boundary holds regardless — but it meant paying for a
+  full staged run before that guarantee kicked in, and losing the
+  fail-fast case's other benefit (a chance to interactively re-login
+  before the run starts). Fix: a new top-level opt-in frontmatter flag,
+  `identity_precheck: true` (`engine/skills.py`'s `load_identity_precheck`),
+  read by `engine/staged_skill_tools.py`'s `_make_staged_tool`, which calls
+  `check_identity_match` in-process — via `identity_check.
+  build_identity_check_tool(...).handler({})`, invoking the `SdkMcpTool`'s
+  own handler directly (the exact function a real MCP round trip to
+  `check_identity_match` would ultimately call), bypassing the MCP server/
+  transport layer entirely — before `run_staged_skill` is invoked at all.
+  (An earlier version of this fix tried going through
+  `build_identity_check_server(...)["instance"].call_tool(...)` instead —
+  wrong layer: that object is the low-level `mcp` package's `Server`, whose
+  `call_tool` is a *decorator* for registering a handler, not something
+  invocable with `(name, args)` — caught live, first attempt crashed every
+  run with `Server.call_tool() takes 1 positional argument but 3 were
+  given`, silently falling back to the old model-driven path since the
+  crash was swallowed as a normal tool error.) Only a confirmed
+  `"mismatch"` short-circuits (returns immediately,
+  no stage ever opens); an `"error"` result (e.g. no active Kite session)
+  deliberately falls through unchanged, because this handler is one atomic
+  call with no way to pause and wait for the user's next turn (§8's "one
+  atomic call" constraint, one level up here) — and stage 1 already has a
+  graceful, no-input-needed fallback for that case (falls back to cached
+  holdings), so nothing is lost by not gating on it here too. See §8's
+  2026-08-29 issue #51 revision.
 - **Per-stage vs. aggregate turn reporting** — **Decided (2026-08-07):**
   per-stage. Today's `[matches ...]` / `[engine saved ...]` / `[budget
   ...]` console diagnostics are printed once per turn; under staging, each

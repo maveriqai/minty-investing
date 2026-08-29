@@ -167,6 +167,25 @@ def load_stages(skill_name: str) -> list[dict]:
     return stages
 
 
+def load_identity_precheck(skill_name: str) -> bool:
+    """Whether skill_name's staged run should run a deterministic
+    check_identity_match precheck, in-process, before stage 1's session
+    ever opens (issue #51) — a top-level opt-in frontmatter flag
+    (`identity_precheck: true`, sibling of `stages:`), not a per-stage
+    field like #52's `critical`: it applies once, before any stage starts,
+    not to one stage's own outcome.
+
+    False (not an error) if the skill doesn't exist or declares nothing —
+    matches every other `load_*` function's convention in this module.
+    Harmless if declared on a skill with no `stages`: there'd be no
+    `run_staged_<skill>` tool to ever consult it from."""
+    skill_md = SKILLS_ROOT / skill_name / "SKILL.md"
+    if not skill_md.is_file():
+        return False
+    frontmatter = _parse_frontmatter(skill_md.read_text())
+    return bool(frontmatter.get("identity_precheck", False))
+
+
 def load_tool_call_budgets(skill_name: str) -> dict[str, int]:
     """Each skill's own declared per-turn call ceiling for a specific MCP
     tool — e.g. morning-digest's documented "~20 india_news.get_news calls"

@@ -12,6 +12,7 @@ from engine.skills import (
     composed_output_patterns,
     load_deterministic_scripts,
     load_expected_outputs,
+    load_identity_precheck,
     load_stages,
     load_tool_call_budgets,
     match_changed_files,
@@ -200,6 +201,25 @@ def test_load_tool_call_budgets_empty_when_skill_declares_nothing(tmp_path, monk
 def test_load_tool_call_budgets_empty_when_skill_does_not_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
     assert load_tool_call_budgets("nonexistent") == {}
+
+
+def test_load_identity_precheck_true_when_declared(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(tmp_path, "morning-digest", "name: morning-digest\ndescription: test\nidentity_precheck: true")
+
+    assert load_identity_precheck("morning-digest") is True
+
+
+def test_load_identity_precheck_false_when_skill_declares_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(tmp_path, "no-precheck", "name: no-precheck\ndescription: test")
+
+    assert load_identity_precheck("no-precheck") is False
+
+
+def test_load_identity_precheck_false_when_skill_does_not_exist(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    assert load_identity_precheck("nonexistent") is False
 
 
 def test_thesis_tracker_declares_its_per_symbol_theses_output():
