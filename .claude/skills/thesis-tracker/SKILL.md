@@ -65,12 +65,9 @@ tool, never eyeballed.
      - **`"mismatch"`:** **Stop** — report plainly that a different
        Zerodha account is connected than expected (cite the tool's own
        `anchor_user_id`/`live_user_id`), and don't fetch or use holdings
-       data for this thesis. There's no tool call that can update the
-       anchor — it's engine-managed and write-once (see
-       `engine/tool_capture.py`) — so this stays flagged on every run
-       until a human resolves it by hand (deleting
-       `data/account_identity.json`), not something you can fix from
-       inside a conversation.
+       data for this thesis. The anchor is engine-managed and write-once —
+       this stays flagged every run until a human resolves it by hand, not
+       something fixable from inside a conversation.
      - **An error result** (e.g. no active Kite session): handle it the
        same way you'd handle a `get_profile` failure — present the login
        flow.
@@ -128,9 +125,8 @@ tool, never eyeballed.
    memory. When a user-reported figure needs checking against the actual
    filed document (not just the announcement metadata), call
    `india_filings.get_filing_document(url)` with the `attchmntFile` URL from
-   `get_announcements` — never Bash/curl (issue #25: that bypassed caching,
-   rate-limiting, and auto-capture entirely, and Bash isn't in Minty's tool
-   surface at all anymore).
+   `get_announcements` — never Bash/curl (issue #25; Bash isn't in Minty's
+   tool surface at all anymore anyway).
 
 4. **Compute the deterministic move.** Call the `run_thesis_math` tool
    (not Bash) with `workspace_root` set to the exact active-workspace path,

@@ -111,13 +111,9 @@ grounded in tool data, computed in code. The final chat response of this
 skill run *is* the digest, so write it as the actual deliverable, not a
 summary of what you did.
 
-Workspace-scoped, same convention as every other skill (an earlier version
-of this skill treated it as a standing, repo-root job — that was inherited
-from the old repo's unattended `launchd` automation, which needed a fixed
-path with no workspace ambiguity for a notification/script to find. This
-project doesn't have that pipeline — every digest is triggered by the user,
-same as any other skill — so the exception no longer has a reason to
-exist).
+Workspace-scoped, same convention as every other skill (see
+`docs/skills.md`'s design notes for this skill's earlier standing-job
+history).
 
 ## Steps
 
@@ -142,12 +138,8 @@ exist).
      below (cite the tool's own `anchor_user_id`/`live_user_id`) — and
      don't call `run_staged_morning-digest` at all; there's no point
      starting a staged run that stage 1's own check will only reject
-     anyway. Note: you don't strictly have to catch this yourself any
-     more — `run_staged_morning-digest` now runs this exact check itself,
-     in-process, before ever opening stage 1's session
-     (`identity_precheck: true` above, issue #51), and returns immediately
-     with a mismatch message at zero stage cost if it finds one. Catching
-     it here too just reports it one tool call sooner in the same turn.
+     anyway. (The staged run also checks this itself before stage 1
+     opens — catching it here just reports it one tool call sooner.)
    - **`"no_anchor"` or `"match"`:** proceed to call
      `run_staged_morning-digest`. (Stage 1 runs in its own fresh session
      with its own identity state — it still does its own
@@ -180,28 +172,21 @@ exist).
    - **`"mismatch"`:** **Stop** — don't fetch or overwrite the workspace's
      `data/holdings_<date>.json`; report plainly that a different Zerodha
      account is connected than expected (cite the tool's own
-     `anchor_user_id`/`live_user_id`). Minty is a single-account tool by
-     design, not multi-tenant — a second account's data would silently
-     corrupt the cached snapshot rather than raise an error. There's no
-     tool call that can update the anchor — it's engine-managed and
-     write-once (see `engine/tool_capture.py`) — so this stays flagged on
-     every run until a human resolves it by hand (deleting
-     `data/account_identity.json`), not something you can fix from inside
-     a conversation.
+     `anchor_user_id`/`live_user_id`). The anchor is engine-managed and
+     write-once — this stays flagged every run until a human resolves it
+     by hand, not something fixable from inside a conversation.
    - **An error result** (e.g. no active Kite session): treat it the same
      as step 0's error branch — the fallback to cached holdings below
      applies here too.
 
    Then call `fetch_holdings(workspace_root=...)`, not
-   `kite_gateway.get_holdings` directly (that raw tool is blocked — see
-   issue #46: a full account's holdings can exceed the size a raw tool
-   result can carry). `fetch_holdings` is read-only by construction, same
-   as `get_holdings` was: the order-placing/-modifying tools (`place_order`,
-   `modify_order`, `cancel_order`, GTT tools) aren't in `kite_gateway`'s
-   tool surface at all (see docs/vision.md §5). It fetches and saves the
-   raw result to the workspace's `data/holdings_<YYYY-MM-DD>.json` in one
-   step, reporting back only a holdings count — no separate save step, and
-   nothing to read from its response.
+   `kite_gateway.get_holdings` directly (`get_holdings` itself is blocked).
+   `fetch_holdings` is read-only, same as `get_holdings` was: the
+   order-placing/-modifying tools aren't in `kite_gateway`'s tool surface at
+   all. It fetches and saves the raw result to the workspace's
+   `data/holdings_<YYYY-MM-DD>.json` in one step, reporting back only a
+   holdings count — no separate save step, and nothing to read from its
+   response.
 
    The saved file's shape is already known: each entry has
    `tradingsymbol`, `exchange`, `isin`, `quantity`, `average_price`,
@@ -236,21 +221,19 @@ exist).
 4. **Fetch an index snapshot.** Call
    `india_price.get_quote(["^NSEI", "^BSESN", "^NSEBANK", "^INDIAVIX"])`
    for NIFTY 50, SENSEX, BANKNIFTY, and INDIA VIX last-price/day-change. The
-   engine automatically saves this to `data/index_quote_<date>.json` — it
-   recognizes an index-only call by the `^`-prefixed tickers, so this stays
-   separate from step 4b's holdings quotes below even though both call the
-   same tool.
+   engine automatically saves this to `data/index_quote_<date>.json`,
+   separately from step 4b's holdings quotes below even though both call
+   the same tool.
 
 4b. **Fetch live prices for every held symbol.** Call
    `india_price.get_quote(symbols)` with the full list of distinct
    `tradingsymbol`s from step 3's holdings (one batched call, not a loop).
    The engine automatically saves this to `data/live_quotes_<date>.json`.
-   This is what keeps today's
-   per-position move accurate even when Kite's own cached
-   `last_price`/`close_price`/`day_change_percentage` fields are stale —
-   `india_price` needs no Kite session and is always fetched fresh in this
-   step (see `scripts/digest_math.py`'s docstring for why this matters). A
-   handful of symbols (G-Secs, some ETFs) won't resolve on yfinance;
+   This is what keeps today's per-position move accurate even when Kite's
+   own cached `last_price`/`close_price`/`day_change_percentage` fields are
+   stale — `india_price` needs no Kite session and is always fetched fresh
+   in this step. A handful of symbols (G-Secs, some ETFs) won't resolve on
+   yfinance;
    `digest_math.py` falls back to that position's own Kite-snapshot fields
    automatically and reports which symbols it fell back for.
 
@@ -281,16 +264,25 @@ exist).
    symbols=<that list>)` and `("GSM", symbols=<that list>)` — always pass
    `symbols`, never omit it. The unfiltered market-wide list runs into
    tens of thousands of characters and can silently exceed the model's own
-   tool-result size cap, which substitutes a plain-text redirect in place
-   of the real data instead of a real error (issue #24, hit live twice:
-   2026-08-27 and again 2026-08-28) — filtering to your own held symbols
-   keeps the response small and avoids that failure mode almost entirely.
+   tool-result size cap, substituting a plain-text redirect for the real
+   data instead of a real error (issue #24) — filtering to your own held
+   symbols keeps the response small and avoids that failure mode almost
+   entirely.
    The engine automatically saves the two raw results to
    `data/surveillance_asm_<date>.json` and `data/surveillance_gsm_<date>.json`
    as each call returns — no separate save step. Then call the
    `run_surveillance_check` tool (not Bash) with `workspace_root`,
-   `holdings_file`/`asm_file`/`gsm_file` set to those three saved paths, and
-   `date_tag` set to `<date>` — the output filename comes from this
+   `holdings_file` set to the raw holdings snapshot Stage 1 fetched or fell
+   back to in step 3 — `data/holdings_<date>.json` if it exists, otherwise
+   glob the workspace's `data/` for the newest existing `holdings_*.json`
+   (this stage's own session has no memory of which one step 3 actually
+   used, but no new holdings file is written between stages, so the newest
+   one on disk is always that same file). This is never
+   `results/digest_<date>.json` — that's `run_digest_math`'s *computed
+   output* (`all_positions` is per-symbol P&L, not a raw holdings record;
+   it has no `tradingsymbol` field, which is what `surveillance_check.py`
+   actually reads). Set `asm_file`/`gsm_file` to the two paths just saved
+   above, and `date_tag` to `<date>` — the output filename comes from this
    argument, not from parsing the input filenames, so it stays
    `surveillance_flags_<date>.json` regardless of what you named the saved
    ASM/GSM files.
@@ -307,17 +299,12 @@ exist).
    **If a saved ASM/GSM file still looks corrupted, incomplete, or
    otherwise unreadable — even after filtering — never hand-author or
    patch it with `Write`.** `workspace/data/` exists to hold verbatim,
-   engine-captured tool output and nothing else; a `Write` call there
-   produces content nobody actually fetched, indistinguishable later from
-   a real capture, which is a worse version of the exact grounding failure
-   issue #24 is about (found live 2026-08-28: a prior run of this same
-   step, faced with a corrupted capture, read fragments of the SDK's own
-   raw overflow file and used `Write` to reconstruct a "partial" surveillance
-   list with an unverifiable completeness claim). Treat it the same as any
-   other failed fetch: report the gap honestly in the brief (which symbols'
-   surveillance status couldn't be confirmed this run) and let
-   `run_surveillance_check` work with whatever real data exists, same as
-   the NSE-outage case above.
+   engine-captured tool output and nothing else; a `Write` call there would
+   produce content nobody actually fetched, indistinguishable later from a
+   real capture. Treat it the same as any other failed fetch: report the
+   gap honestly in the brief (which symbols' surveillance status couldn't
+   be confirmed this run) and let `run_surveillance_check` work with
+   whatever real data exists, same as the NSE-outage case above.
 
 ## Stage 3: News & materiality
 

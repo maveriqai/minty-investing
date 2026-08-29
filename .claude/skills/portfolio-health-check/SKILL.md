@@ -46,20 +46,15 @@ regardless of which broker it came from.
    - **`"mismatch"`:** **Stop** — report plainly that a different Zerodha
      account is connected than expected (cite the tool's own
      `anchor_user_id`/`live_user_id`), and don't fetch or overwrite the
-     workspace's `data/holdings_<date>.json`. Minty is a single-account
-     tool by design — a second account's data would silently corrupt the
-     cached snapshot rather than raise an error. There's no tool call that
-     can update the anchor — it's engine-managed and write-once (see
-     `engine/tool_capture.py`) — so this stays flagged on every run until a
-     human resolves it by hand (deleting `data/account_identity.json`),
-     not something you can fix from inside a conversation.
+     workspace's `data/holdings_<date>.json`. The anchor is engine-managed
+     and write-once — this stays flagged every run until a human resolves
+     it by hand, not something fixable from inside a conversation.
    - **An error result** (e.g. no active Kite session): handle it the same
      way you'd handle a `get_profile` failure — present the login flow.
 
    Currently `kite_gateway` is the only connected broker — call
    `fetch_holdings(workspace_root=...)`, not `kite_gateway.get_holdings`
-   directly (that raw tool is blocked — see issue #46: a full account's
-   holdings can exceed the size a raw tool result can carry).
+   directly (`get_holdings` itself is blocked — issue #46).
    `fetch_holdings` fetches and saves `data/holdings_<YYYY-MM-DD>.json` in
    one step and reports back only a holdings count, never the holdings
    themselves — no separate save step, and nothing to read from its

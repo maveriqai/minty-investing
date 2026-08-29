@@ -48,9 +48,9 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    Write into its `data/` and `results/` as documented below.
 
 2. **Map the theme to an industry label.** The instruments master's
-   industry field uses these exact labels (verified live 2026-08-20):
-   Automobile and Auto Components, Capital Goods, Chemicals, Construction,
-   Construction Materials, Consumer Durables, Consumer Services,
+   industry field uses these exact labels: Automobile and Auto Components,
+   Capital Goods, Chemicals, Construction, Construction Materials,
+   Consumer Durables, Consumer Services,
    Diversified, Fast Moving Consumer Goods, Financial Services, Healthcare,
    Information Technology, Media Entertainment & Publication, Metals &
    Mining, Oil Gas & Consumable Fuels, Power, Realty, Services,
