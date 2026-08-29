@@ -75,10 +75,19 @@ tool, never eyeballed.
        same way you'd handle a `get_profile` failure — present the login
        flow.
 
-     Once verified, pull actual quantity/average price from
-     `kite_gateway.get_holdings` (read-only; never `place_order`/
-     `modify_order`/`cancel_order`/GTT tools) rather than asking the user
-     to restate what's already known.
+     Once verified, call the `get_holding_for_symbol` tool (`symbol`,
+     `workspace_root`) rather than asking the user to restate what's
+     already known — never `Read` `data/holdings_<date>.json` yourself (it
+     can be too large to read reliably) and never call
+     `kite_gateway.get_holdings` directly (blocked — issue #46). Branch on
+     its `status`:
+     - **`"found"`:** use the returned `holding`'s quantity/average price.
+     - **`"not_held"`:** no cached holding matches this symbol (sold,
+       delisted, or a typo) — say so rather than inventing numbers.
+     - **`"no_cache"`:** nothing's been fetched today yet — ask the user
+       whether to refresh holdings from Kite before proceeding, don't call
+       `fetch_holdings` unprompted. If they say yes, call `fetch_holdings`,
+       then call `get_holding_for_symbol` again.
    - **Thesis statement**: 1-2 sentences — the core bet.
    - **Key pillars**: 3-5 supporting arguments, each specific enough to be
      checked against a real data point later (not "good company").
@@ -159,7 +168,9 @@ tool, never eyeballed.
 ## Guardrails
 
 - Never call Kite's order-placing/modifying tools — read-only
-  (`get_holdings`, `get_quotes`) only.
+  (`fetch_holdings`, `get_holding_for_symbol`, `get_quotes`) only.
+  `kite_gateway.get_holdings` itself is blocked, not just discouraged
+  (issue #46) — never call it directly.
 - Never compute % move, days elapsed, or any other figure by LLM
   arithmetic — always through the `run_thesis_math` tool.
 - Target price and stop-loss are the user's stated inputs, not this

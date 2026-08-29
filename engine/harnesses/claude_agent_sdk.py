@@ -70,6 +70,7 @@ from claude_agent_sdk.types import PostToolUseHookInput, PreToolUseHookInput
 from engine import skills
 from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
+from engine.holding_lookup import build_holding_lookup_server
 from engine.holdings_fetch import build_fetch_holdings_server
 from engine.identity_check import build_identity_check_server
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
@@ -90,6 +91,7 @@ _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 _MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
 _FETCH_HOLDINGS_SERVER_NAME = "fetch_holdings"
+_HOLDING_LOOKUP_SERVER_NAME = "holding_lookup"
 _IDENTITY_CHECK_SERVER_NAME = "identity_check"
 
 # Blocked unconditionally, everywhere — not via GuardrailPolicy (that's
@@ -364,6 +366,11 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     # path available, since kite_gateway's own get_holdings is disallowed
     # below (issue #46).
     mcp_servers[_FETCH_HOLDINGS_SERVER_NAME] = build_fetch_holdings_server()
+    # Same unconditional treatment — the single-symbol lookup this backs
+    # (get_holding_for_symbol) is how thesis-tracker reads one holding out
+    # of the cache fetch_holdings just wrote, instead of Reading the whole
+    # file itself or calling the now-blocked get_holdings (issue #50).
+    mcp_servers[_HOLDING_LOOKUP_SERVER_NAME] = build_holding_lookup_server()
     # Same unconditional treatment — every session needs the deterministic
     # identity-match check available, replacing the prose Read-and-compare
     # steps portfolio-health-check/morning-digest/thesis-tracker used to do
