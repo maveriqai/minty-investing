@@ -13,6 +13,7 @@ license: >
   conventions (FY quarters, Ind AS, SEBI disclaimer) applied throughout.
 expected_outputs:
   - "{workspace}/results/thesis_*_{date}.json"
+  - "{workspace}/theses/*.md"
 deterministic_scripts:
   - id: thesis_math
     path: scripts/thesis_math.py

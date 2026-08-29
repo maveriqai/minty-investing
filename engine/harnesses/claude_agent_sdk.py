@@ -177,8 +177,28 @@ _MEMORY_CANDIDATE_SYSTEM_PROMPT = (
     "already saved this turn."
 )
 
+# Issue #39: a skill's closing follow-up question (e.g. screen-indian-
+# stocks's "want me to go deeper on any one name?") was emergent model
+# behavior folded into flowing prose, immediately before a Sources footer
+# that can itself run long (#36) — live onboarding feedback found it easy
+# to miss entirely. No shared "close with a question" convention existed
+# in any skill's own SKILL.md to build on (checked: none declare one), so
+# this is one centralized instruction, alongside the three above, rather
+# than editing every skill file. `engine/interactive.py`'s `_run_turn`
+# looks for the exact `Next:`-prefixed last line this asks for and
+# displays it separately, after the footer — see that module.
+_NEXT_STEP_SYSTEM_PROMPT = (
+    "When your reply ends with a follow-up question or suggested next "
+    "action for the user, put that — and only that — on its own final "
+    "line, prefixed with exactly \"Next: \" (nothing else before it on "
+    "the line). The engine displays this separately from the rest of "
+    "your reply; don't also restate the same question earlier in your "
+    "prose."
+)
+
 _SYSTEM_PROMPT = (
     f"{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}"
+    f"\n\n{_NEXT_STEP_SYSTEM_PROMPT}"
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
@@ -501,7 +521,13 @@ class ClaudeSession:
         self.last_over_budget: list[str] = []
         self.last_tool_calls: list[dict[str, Any]] = []
 
-    async def send(self, prompt: str, *, workspace_root: Path | None = None) -> AsyncIterator[str]:
+    async def send(
+        self,
+        prompt: str,
+        *,
+        workspace_root: Path | None = None,
+        engine_log_path: Path | None = None,
+    ) -> AsyncIterator[str]:
         """`workspace_root`, when given, turns on auto-capture: every Layer-2
         MCP tool result this turn produces is saved to the workspace's
         `data/` under the same filename its skill's own SKILL.md already
@@ -540,6 +566,11 @@ class ClaudeSession:
         only ever reflects known, successful, capture-worthy results.
         Callers with a `workspace_root` write this to a durable per-session
         audit log (engine/tool_audit.py); this method only collects it.
+
+        `engine_log_path`, when given, is threaded straight to
+        `save_tool_result` (engine/tool_capture.py) — the durable home for
+        this turn's routine diagnostics (issue #37), e.g. a rejected
+        capture. Purely a pass-through; this method doesn't inspect it.
 
         A `run_staged_<skill>` call (see engine/staged_skill_tools.py) gets
         special handling: its own returned text already *is* the finished,
@@ -644,7 +675,9 @@ class ClaudeSession:
                         continue
                     if text is None:
                         continue
-                    saved_path = save_tool_result(tool_name, tool_input, text, workspace_root)
+                    saved_path = save_tool_result(
+                        tool_name, tool_input, text, workspace_root, engine_log_path=engine_log_path
+                    )
                     if saved_path is None:
                         continue
                     if parsed is not None:

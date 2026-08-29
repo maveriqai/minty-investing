@@ -7,14 +7,35 @@ turn's own reply — this function seeing it too would silently clobber the
 correct file with a worse one (issue #15).
 """
 
+import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import engine.interactive as interactive_module
 import engine.skills as skills_module
-from engine.interactive import _report_changed_files, _save_composed_outputs
+from engine.interactive import (
+    _extract_next_step,
+    _report_changed_files,
+    _save_composed_outputs,
+    _split_footer,
+    _stream_with_indicator,
+    _suspend_input_echo,
+)
+from engine.sources_footer import FOOTER_MARKER
 
 _TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+
+
+@pytest.fixture(autouse=True)
+def _debug_diagnostics(monkeypatch):
+    # Every existing test below asserts on _report_changed_files'/
+    # _save_composed_outputs' printed diagnostics via capsys — they're
+    # testing the underlying matching/save logic, not issue #37's gating
+    # behavior itself (which gets its own tests, further down, that
+    # explicitly override this).
+    monkeypatch.setenv("MINTY_DEBUG", "1")
 
 
 def _write_skill(skills_root, name, *, staged: bool):
@@ -171,3 +192,148 @@ def test_report_changed_files_reports_no_files_changed(capsys):
     _report_changed_files([], [], "workspace", date=_TODAY)
 
     assert capsys.readouterr().out.strip() == "[no files changed this turn]"
+
+
+# --- Issue #37: diagnostic gating itself (overrides the autouse MINTY_DEBUG=1 above) ---
+
+
+def test_report_changed_files_stays_silent_on_terminal_by_default(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("MINTY_DEBUG", raising=False)
+    stray_file = tmp_path / "workspace" / "results" / "unexpected.json"
+
+    _report_changed_files([str(stray_file)], [], "workspace", date=_TODAY)
+
+    assert capsys.readouterr().out == ""
+
+
+def test_report_changed_files_writes_to_the_engine_log_when_given_one(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("MINTY_DEBUG", raising=False)
+    stray_file = tmp_path / "workspace" / "results" / "unexpected.json"
+    log_path = tmp_path / "sessions" / "2026-08-28T09-00-00_engine.log"
+
+    _report_changed_files([str(stray_file)], [], "workspace", date=_TODAY, engine_log_path=log_path)
+
+    assert capsys.readouterr().out == ""
+    logged = log_path.read_text(encoding="utf-8")
+    assert "not matching any known skill's expected output" in logged
+    assert str(stray_file) in logged
+
+
+# --- Issue #35: the working-indicator wrapper ---
+
+
+async def _slow_agen(delays_and_values):
+    for delay, value in delays_and_values:
+        await asyncio.sleep(delay)
+        yield value
+
+
+def test_stream_with_indicator_yields_every_value_in_order():
+    async def run():
+        return [chunk async for chunk in _stream_with_indicator(_slow_agen([(0, "a"), (0, "b"), (0, "c")]))]
+
+    assert asyncio.run(run()) == ["a", "b", "c"]
+
+
+def test_stream_with_indicator_writes_spinner_frames_to_stderr_during_a_gap(capsys, monkeypatch):
+    monkeypatch.setattr(interactive_module, "_SPINNER_POLL_S", 0.01)
+
+    async def run():
+        return [chunk async for chunk in _stream_with_indicator(_slow_agen([(0.05, "a")]))]
+
+    result = asyncio.run(run())
+
+    assert result == ["a"]
+    err = capsys.readouterr().err
+    assert "working..." in err
+
+
+def test_stream_with_indicator_clears_the_spinner_line_before_yielding(capsys, monkeypatch):
+    monkeypatch.setattr(interactive_module, "_SPINNER_POLL_S", 0.01)
+
+    async def run():
+        return [chunk async for chunk in _stream_with_indicator(_slow_agen([(0.05, "a")]))]
+
+    asyncio.run(run())
+
+    err = capsys.readouterr().err
+    # The very last write before the chunk is handed back is a clearing
+    # line (carriage return, spaces, carriage return) — never left mid-spin.
+    assert err.endswith("\r")
+
+
+def test_stream_with_indicator_propagates_an_empty_generator():
+    async def run():
+        return [chunk async for chunk in _stream_with_indicator(_slow_agen([]))]
+
+    assert asyncio.run(run()) == []
+
+
+# --- Issue #42: input-echo suspension ---
+
+
+def test_suspend_input_echo_is_a_noop_when_stdin_is_not_a_tty():
+    # Under pytest, stdin is never a real tty — this exercises the actual
+    # no-op path rather than mocking termios away.
+    with _suspend_input_echo():
+        pass  # must not raise
+
+
+# --- Issue #39: the trailing "Next: ..." line ---
+
+
+def test_extract_next_step_pulls_the_trailing_next_line():
+    body, next_step = _extract_next_step("Here is the analysis.\n\nNext: want me to go deeper on RELIANCE?")
+
+    assert body == "Here is the analysis."
+    assert next_step == "want me to go deeper on RELIANCE?"
+
+
+def test_extract_next_step_returns_none_when_no_next_line_present():
+    body, next_step = _extract_next_step("Just a plain reply, no follow-up.")
+
+    assert body == "Just a plain reply, no follow-up."
+    assert next_step is None
+
+
+def test_extract_next_step_handles_a_next_only_reply():
+    body, next_step = _extract_next_step("Next: pick a sector to screen?")
+
+    assert body == ""
+    assert next_step == "pick a sector to screen?"
+
+
+def test_extract_next_step_ignores_next_prefixed_text_mid_paragraph():
+    text = "Next: at this point isn't a closing line since more follows.\n\nMore analysis here."
+
+    body, next_step = _extract_next_step(text)
+
+    assert next_step is None
+    assert body == text
+
+
+# --- Issue #38: splitting the model's text from the engine-appended footer ---
+
+
+def test_split_footer_separates_model_text_from_footer(tmp_path):
+    from engine.sources_footer import build_footer
+
+    footer = build_footer(
+        [("kite_gateway", "get_holdings", tmp_path / "data" / "holdings_2026-08-28.json")],
+        as_of="2026-08-28",
+        workspace_root=tmp_path,
+    )
+    full_text = "Here is your portfolio summary." + footer
+
+    model_text, footer_text = _split_footer(full_text)
+
+    assert model_text == "Here is your portfolio summary."
+    assert footer_text == footer
+    assert footer_text.startswith(FOOTER_MARKER)
+
+
+def test_split_footer_returns_the_whole_text_when_no_footer_present():
+    model_text, footer_text = _split_footer("Just a plain chat reply.")
+
+    assert model_text == "Just a plain chat reply."
+    assert footer_text == ""

@@ -183,11 +183,15 @@ def test_save_tool_result_none_for_uncaptured_tool(tmp_path):
     assert not (tmp_path / "data").exists()
 
 
-def test_save_tool_result_rejects_non_json_redirect_text(tmp_path, capsys):
+def test_save_tool_result_rejects_non_json_redirect_text(tmp_path, monkeypatch, capsys):
     # issue #24: the Claude Agent SDK's own "exceeds maximum allowed
     # tokens" substitution arrives as an ordinary, non-error tool result —
     # not JSON at all, so it must be rejected outright, not saved verbatim
     # to the exact path a real capture would use.
+    # MINTY_DEBUG=1 so the rejection is asserted via stdout here (testing
+    # the rejection logic itself) — issue #37's gating of this diagnostic
+    # has its own tests below.
+    monkeypatch.setenv("MINTY_DEBUG", "1")
     redirect_text = (
         "Error: result (58,237 characters) exceeds maximum allowed tokens. "
         "Output has been saved to /Users/x/tool-results/mcp-india_filings-get_surveillance_list-....txt."
@@ -198,6 +202,30 @@ def test_save_tool_result_rejects_non_json_redirect_text(tmp_path, capsys):
     assert result is None
     assert not (tmp_path / "data").exists()
     assert "[capture] rejected" in capsys.readouterr().out
+
+
+def test_save_tool_result_rejection_is_silent_on_terminal_by_default(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("MINTY_DEBUG", raising=False)
+
+    save_tool_result("mcp__india_filings__get_surveillance_list", {"list_type": "ASM"}, "not json", tmp_path)
+
+    assert capsys.readouterr().out == ""
+
+
+def test_save_tool_result_rejection_is_logged_when_an_engine_log_path_is_given(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("MINTY_DEBUG", raising=False)
+    log_path = tmp_path / "sessions" / "2026-08-28T09-00-00_engine.log"
+
+    save_tool_result(
+        "mcp__india_filings__get_surveillance_list",
+        {"list_type": "ASM"},
+        "not json",
+        tmp_path,
+        engine_log_path=log_path,
+    )
+
+    assert capsys.readouterr().out == ""
+    assert "[capture] rejected" in log_path.read_text(encoding="utf-8")
 
 
 def test_save_tool_result_rejects_json_missing_envelope_keys(tmp_path):

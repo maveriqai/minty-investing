@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from engine.diagnostics import emit as _emit
 from engine.workspace import REPO_ROOT
 
 _IST = ZoneInfo("Asia/Kolkata")
@@ -180,20 +181,28 @@ def _is_untrustworthy_capture(result_text: str) -> bool:
 
 
 def save_tool_result(
-    tool_name: str, tool_input: dict[str, Any], result_text: str, workspace_root: Path
+    tool_name: str,
+    tool_input: dict[str, Any],
+    result_text: str,
+    workspace_root: Path,
+    *,
+    engine_log_path: Path | None = None,
 ) -> Path | None:
     """Writes `result_text` (the tool's own raw JSON text, unparsed) to its
     captured path, creating `data/` if needed. Returns the path written, or
     None if this tool isn't captured, or if the result is untrustworthy
     (see `_is_untrustworthy_capture`) — skipped rather than saved, so it
     can't silently clobber an earlier successful capture at the same path,
-    or masquerade as one that was never actually written. A rejection
-    prints a `[capture]` diagnostic line (same audit-visible-but-non-
-    blocking spirit as `engine/tool_budget.py`'s `[budget] ...` lines) —
-    every `minty` session's stdout already lands in
-    `workspace/sessions/<timestamp>.md` (engine/session_transcript.py), so
-    this is durable without needing its own logging setup (see issue #26
-    for the broader gap: no leveled logging exists in this codebase yet).
+    or masquerade as one that was never actually written. A rejection is
+    reported via `engine/diagnostics.py`'s `emit` (issue #37) — silent on
+    the terminal by default, durably logged to `engine_log_path` when the
+    caller has one, printed live only under `MINTY_DEBUG`. (An earlier
+    version of this docstring claimed a plain `print()` here already
+    landed durably in `workspace/sessions/<timestamp>.md` — that was never
+    true; that file only ever records prompt/response text, see
+    `engine/session_transcript.py`. `emit`/`engine_log.py` are what
+    actually make this durable now — see issue #26 for the broader,
+    still-open gap: no real leveled logging exists in this codebase yet.)
 
     Otherwise overwrites on repeat calls — freshest *successful* result
     wins, matching a retried or re-fetched call always meaning "trust this
@@ -208,7 +217,10 @@ def save_tool_result(
     if path is None:
         return None
     if _is_untrustworthy_capture(result_text):
-        print(f"[capture] rejected {tool_name}'s result for {path} — not a real, complete tool result (see issue #24)")
+        _emit(
+            f"[capture] rejected {tool_name}'s result for {path} — not a real, complete tool result (see issue #24)",
+            log_path=engine_log_path,
+        )
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(result_text)

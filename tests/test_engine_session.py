@@ -13,10 +13,20 @@ verified against.
 
 import asyncio
 
+import pytest
+
 import engine.interactive as interactive_module
 from engine.harnesses.base import EngineResult
 from engine.harnesses.claude_agent_sdk import ClaudeSession, _wait_for_mcp_servers_ready
 from engine.interactive import _run_turn
+
+
+@pytest.fixture(autouse=True)
+def _debug_diagnostics(monkeypatch):
+    # These tests assert on _run_turn's printed diagnostics via capsys —
+    # they're testing the underlying logic (budget/changed-files/composed-
+    # output reporting), not issue #37's terminal-gating behavior itself.
+    monkeypatch.setenv("MINTY_DEBUG", "1")
 
 
 class TextBlock:
@@ -149,7 +159,7 @@ class _FakeSession:
         self.last_over_budget = last_over_budget or []
         self.received_prompts: list[str] = []
 
-    async def send(self, prompt: str, *, workspace_root=None):
+    async def send(self, prompt: str, *, workspace_root=None, engine_log_path=None):
         self.received_prompts.append(prompt)
         for chunk in self._chunks:
             yield chunk
@@ -292,7 +302,7 @@ def test_run_turn_reports_files_that_changed_but_match_no_known_skill(tmp_path, 
     (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
         (workspace_root / "results" / "written_during_turn.md").write_text("evidence")
         for chunk in ["ok"]:
             yield chunk
@@ -326,7 +336,7 @@ def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, mo
 
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
@@ -373,7 +383,7 @@ def test_run_turn_saves_composed_text_to_a_skills_declared_md_output(tmp_path, m
 
     session = _FakeSession(["ignored"], EngineResult(ok=True, text="ignored", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
         (workspace_root / "results" / f"digest_{today}.json").write_text("{}")
         for chunk in ["# Morning Digest\n", "Portfolio is up.\n"]:
             yield chunk
@@ -528,7 +538,7 @@ class _RaisingSession:
         self.last_result = None
         self.last_over_budget: list[str] = []
 
-    async def send(self, prompt, *, workspace_root=None):
+    async def send(self, prompt, *, workspace_root=None, engine_log_path=None):
         raise RuntimeError("transient failure")
         yield  # pragma: no cover — unreachable, makes this an async generator
 

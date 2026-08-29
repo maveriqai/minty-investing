@@ -222,6 +222,16 @@ def test_build_options_sets_memory_candidate_system_prompt():
     assert "stage_memory_candidate" in cas._MEMORY_CANDIDATE_SYSTEM_PROMPT
 
 
+def test_build_options_sets_next_step_system_prompt():
+    # Issue #39 — a centralized instruction (alongside the three above),
+    # not per-skill SKILL.md edits: engine/interactive.py's _extract_next_step
+    # looks for exactly this "Next: " convention.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._NEXT_STEP_SYSTEM_PROMPT in options.system_prompt
+    assert "Next: " in cas._NEXT_STEP_SYSTEM_PROMPT
+
+
 def test_build_options_wires_a_pretooluse_hook():
     # Three PreToolUse hooks: order-tool denial, Bash-scope denial, and
     # the identity-mismatch deny hook (issue #19). Tool-call budgets
@@ -451,6 +461,80 @@ def test_send_records_completed_denied_and_no_result_tool_calls(monkeypatch, tmp
     assert by_id["stuck"]["status"] == "no_result"
     assert by_id["stuck"]["is_error"] is None
     assert by_id["stuck"]["result_preview"] is None
+
+
+def test_send_threads_engine_log_path_to_a_rejected_capture(monkeypatch, tmp_path):
+    # Issue #37: send()'s own engine_log_path parameter must actually reach
+    # save_tool_result (engine/tool_capture.py), not just exist on the
+    # signature — this is the one integration point proving the durable
+    # log actually receives a real rejection, not just save_tool_result's
+    # own unit tests calling it directly.
+    @dataclass
+    class ToolUseBlock:
+        id: str
+        name: str
+        input: dict
+
+    @dataclass
+    class ToolResultBlock:
+        tool_use_id: str
+        content: object = None
+        is_error: bool | None = None
+
+    @dataclass
+    class AssistantMessage:
+        content: list
+
+    @dataclass
+    class UserMessage:
+        content: list
+
+    @dataclass
+    class ResultMessage:
+        subtype: str
+        result: str | None = None
+
+    messages = [
+        AssistantMessage(
+            content=[ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]})]
+        ),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="not valid json at all")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            for message in messages:
+                yield message
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+    monkeypatch.delenv("MINTY_DEBUG", raising=False)
+    workspace_root = tmp_path / "ws"
+    (workspace_root / "data").mkdir(parents=True)
+    engine_log_path = tmp_path / "sessions" / "2026-08-28T09-00-00_engine.log"
+
+    async def _run():
+        async with cas.ClaudeAgentSDKHarness().open_session(
+            ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+        ) as session:
+            async for _ in session.send("what's the RELIANCE quote?", workspace_root=workspace_root, engine_log_path=engine_log_path):
+                pass
+
+    asyncio.run(_run())
+
+    assert "[capture] rejected" in engine_log_path.read_text(encoding="utf-8")
 
 
 def test_deny_hook_denies_order_tools_and_allows_safe_tools():

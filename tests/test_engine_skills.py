@@ -197,3 +197,30 @@ def test_load_tool_call_budgets_empty_when_skill_declares_nothing(tmp_path, monk
 def test_load_tool_call_budgets_empty_when_skill_does_not_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
     assert load_tool_call_budgets("nonexistent") == {}
+
+
+def test_thesis_tracker_declares_its_per_symbol_theses_output():
+    # Issue #44: workspace/theses/<SYMBOL>.md — CLAUDE.md's own documented
+    # "one per-symbol exception" thesis-tracker writes — used to be absent
+    # from expected_outputs entirely, so a correct run got its own output
+    # flagged as unmatched by _report_changed_files. Reads the real,
+    # unmonkeypatched .claude/skills/thesis-tracker/SKILL.md.
+    assert "{workspace}/theses/*.md" in load_expected_outputs("thesis-tracker")
+
+
+def test_thesis_tracker_theses_pattern_matches_a_real_per_symbol_file(tmp_path, monkeypatch):
+    # SKILLS_ROOT stays real (thesis-tracker's actual SKILL.md), only
+    # REPO_ROOT is redirected — match_changed_files globs REPO_ROOT for
+    # the resolved pattern, and this proves the new bare "*.md" pattern
+    # (no {symbol} placeholder needed) actually matches a real per-symbol
+    # filename on disk, not just that the string is declared.
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    theses_file = tmp_path / "workspace" / "theses" / "HEROMOTOCO.md"
+    theses_file.parent.mkdir(parents=True)
+    theses_file.write_text("thesis body")
+
+    matches = match_changed_files(
+        "thesis-tracker", [str(theses_file)], workspace_name="workspace", date="2026-08-28"
+    )
+
+    assert matches == [str(theses_file)]
