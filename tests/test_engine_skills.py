@@ -5,11 +5,14 @@ frontmatter field, not per-skill Python orchestration.
 
 from pathlib import Path
 
+import pytest
+
 import engine.skills as skills_module
 from engine.skills import (
     composed_output_patterns,
     load_deterministic_scripts,
     load_expected_outputs,
+    load_stages,
     load_tool_call_budgets,
     match_changed_files,
     resolve_pattern,
@@ -224,3 +227,59 @@ def test_thesis_tracker_theses_pattern_matches_a_real_per_symbol_file(tmp_path, 
     )
 
     assert matches == [str(theses_file)]
+
+
+def test_load_stages_rejects_a_needs_file_only_a_later_stage_produces(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "bad-order",
+        "name: bad-order\ndescription: test\n"
+        "stages:\n"
+        "  - id: a\n"
+        "    instructions: do a\n"
+        '    needs: ["{workspace}/results/x.json"]\n'
+        "  - id: b\n"
+        "    instructions: do b\n"
+        '    produces: ["{workspace}/results/x.json"]\n',
+    )
+
+    with pytest.raises(ValueError, match="same-or-later stage"):
+        load_stages("bad-order")
+
+
+def test_load_stages_rejects_a_critical_stage_with_no_produces(tmp_path, monkeypatch):
+    # Issue #52: run_staged_skill's abort check only fires off a stage's
+    # own `produces` glob check — a `critical` stage with nothing declared
+    # there would silently never abort, defeating the point of the flag.
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "critical-no-produces",
+        "name: critical-no-produces\ndescription: test\n"
+        "stages:\n"
+        "  - id: a\n"
+        "    instructions: do a\n"
+        "    critical: true\n",
+    )
+
+    with pytest.raises(ValueError, match="critical"):
+        load_stages("critical-no-produces")
+
+
+def test_load_stages_accepts_a_critical_stage_with_produces(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "critical-with-produces",
+        "name: critical-with-produces\ndescription: test\n"
+        "stages:\n"
+        "  - id: a\n"
+        "    instructions: do a\n"
+        "    critical: true\n"
+        '    produces: ["{workspace}/results/x.json"]\n',
+    )
+
+    stages = load_stages("critical-with-produces")
+
+    assert stages[0]["critical"] is True

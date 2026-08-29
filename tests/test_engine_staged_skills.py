@@ -192,14 +192,182 @@ def test_run_staged_skill_reports_a_present_needs_file(tmp_path, monkeypatch):
     session = _FakeSession(["ok"])
     harness = _FakeHarness([session])
 
+    # Fixed clock, set well *after* the file above was written, so a file
+    # genuinely written before this run started (simulating "an earlier
+    # stage in this same run already produced it") reads as fresh — not
+    # dependent on real wall-clock timing (issue #52's freshness check).
     asyncio.run(
         staged_skills.run_staged_skill(
-            harness, FAKE_TOOLS, "body", stages, workspace_root=results_dir.parent, date="2026-08-07"
+            harness,
+            FAKE_TOOLS,
+            "body",
+            stages,
+            workspace_root=results_dir.parent,
+            date="2026-08-07",
+            now=lambda: (results_dir / "digest_2026-08-07.json").stat().st_mtime + 0.5,
         )
     )
 
     assert "present" in session.received_prompts[0]
     assert "digest_2026-08-07.json" in session.received_prompts[0]
+
+
+def test_run_staged_skill_treats_a_stale_needs_file_as_missing(tmp_path, monkeypatch):
+    """Issue #52: a `needs`/`produces` file's mere existence isn't enough —
+    a file left over from a legitimately earlier run that same day must not
+    be mistaken for this run's own output. Live-observed 2026-08-29: a
+    stage that correctly refused to write fresh output (an account-identity
+    mismatch) was still treated as having succeeded, because an hours-old
+    file from an earlier run happened to already be sitting there."""
+    import os
+
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    results_dir = tmp_path / "workspaces" / "daily" / "results"
+    results_dir.mkdir(parents=True)
+    stale_file = results_dir / "digest_2026-08-07.json"
+    stale_file.write_text("{}")
+    stale_mtime = stale_file.stat().st_mtime
+    os.utime(stale_file, (stale_mtime - 3600, stale_mtime - 3600))  # an hour "before this run"
+
+    stages = [_stage("b", needs=["{workspace}/results/digest_{date}.json"])]
+    session = _FakeSession(["ok"])
+    harness = _FakeHarness([session])
+
+    asyncio.run(
+        staged_skills.run_staged_skill(
+            harness,
+            FAKE_TOOLS,
+            "body",
+            stages,
+            workspace_root=results_dir.parent,
+            date="2026-08-07",
+            now=lambda: stale_mtime,  # "this run" started after the stale file's real mtime
+        )
+    )
+
+    assert "MISSING" in session.received_prompts[0]
+    assert "digest_2026-08-07.json" in session.received_prompts[0]
+
+
+def test_run_staged_skill_aborts_after_a_critical_stages_produces_check_fails(tmp_path, monkeypatch):
+    """Issue #52: a stage marked `critical: true` whose declared `produces`
+    file never lands must abort the run right there — no later stage runs,
+    and the failing stage's own text (not a later stage's, which never
+    executes) is what the caller gets back."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    (tmp_path / "workspaces" / "daily" / "results").mkdir(parents=True)
+
+    stages = [
+        _stage(
+            "a",
+            instructions="do stage a",
+            critical=True,
+            produces=["{workspace}/results/digest_{date}.json"],
+        ),
+        _stage("b", instructions="do stage b"),
+    ]
+    sessions = [_FakeSession(["I have to stop here — account mismatch."]), _FakeSession(["never runs"])]
+    harness = _FakeHarness(sessions)
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness,
+            FAKE_TOOLS,
+            "body",
+            stages,
+            workspace_root=tmp_path / "workspaces" / "daily",
+            date="2026-08-07",
+        )
+    )
+
+    assert len(harness.opened_tools) == 1  # stage "b" never opened
+    assert final_text == "I have to stop here — account mismatch."
+
+
+def test_run_staged_skill_does_not_abort_when_a_non_critical_stage_fails(tmp_path, monkeypatch):
+    """Regression guard: a stage without `critical: true` whose `produces`
+    file doesn't land must still fail open — the existing 2026-08-05
+    decision, unchanged by #52's critical-stage addition."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    (tmp_path / "workspaces" / "daily" / "results").mkdir(parents=True)
+
+    stages = [
+        _stage("a", produces=["{workspace}/results/digest_{date}.json"]),
+        _stage("b", needs=["{workspace}/results/digest_{date}.json"]),
+    ]
+    sessions = [_FakeSession(["A"]), _FakeSession(["B"])]
+    harness = _FakeHarness(sessions)
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness,
+            FAKE_TOOLS,
+            "body",
+            stages,
+            workspace_root=tmp_path / "workspaces" / "daily",
+            date="2026-08-07",
+        )
+    )
+
+    assert len(harness.opened_tools) == 2  # stage "b" still ran
+    assert final_text == "B"
+
+
+class _RaisingFakeSession:
+    """A session whose `send()` raises partway through streaming — a stage
+    hitting a real error (network failure, unhandled exception) rather than
+    just silently not writing its `produces` files."""
+
+    def __init__(self):
+        self.last_captures = []
+        self.last_over_budget = []
+        self.last_tool_calls = []
+        self.last_result = EngineResult(ok=False, text="", error_kind="exception", raw=None)
+        self.received_prompts: list[str] = []
+
+    async def send(self, prompt, *, workspace_root=None):
+        self.received_prompts.append(prompt)
+        raise RuntimeError("boom")
+        yield ""  # pragma: no cover - unreachable, makes this an async generator
+
+
+def test_run_staged_skill_treats_a_raised_exception_as_stage_failure(tmp_path, monkeypatch):
+    """Issue #52: docs/staged-skill-execution-design.md §9 documented a
+    raised exception as already being treated like a missing `produces`
+    file, but the loop had no try/except — the exception propagated and
+    would have crashed the whole staged run. Must degrade gracefully
+    instead, whether or not the stage is critical."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    (tmp_path / "workspaces" / "daily" / "results").mkdir(parents=True)
+
+    stages = [
+        _stage("a", produces=["{workspace}/results/digest_{date}.json"]),
+        _stage("b"),
+    ]
+    harness = _FakeHarness([_RaisingFakeSession(), _FakeSession(["B"])])
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness,
+            FAKE_TOOLS,
+            "body",
+            stages,
+            workspace_root=tmp_path / "workspaces" / "daily",
+            date="2026-08-07",
+        )
+    )
+
+    # Not critical -> fails open, stage "b" still runs and its text wins.
+    assert len(harness.opened_tools) == 2
+    assert final_text == "B"
 
 
 def test_run_staged_skill_prints_per_stage_and_total_diagnostics(capsys):

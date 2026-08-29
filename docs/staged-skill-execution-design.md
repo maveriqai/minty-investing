@@ -533,6 +533,18 @@ needed.
   a corrupted state by the nesting. No deadlock, no crash, no shared-state
   interference — the mechanism candidate 3 depends on is real.
 
+**Revised (2026-08-29, issue #52): "only the compose stage's text is
+surfaced" is no longer absolute.** Live-observed with a deliberately
+mismatched account identity: `morning-digest`'s stage 1 correctly detected
+and refused to proceed past the mismatch, but stages 2-4 ran anyway on
+stale-but-present data, and the user never saw any indication anything was
+wrong — because only `compose`'s text ever reached them, and `compose`
+never even heard that stage 1 had a problem. A stage may now declare
+`critical: true`; if that stage's own `produces` check fails, the run
+aborts immediately and returns *that stage's own session text* instead of
+continuing to `compose`. See `engine/staged_skills.py::run_staged_skill`'s
+docstring and §9 below for the full mechanism.
+
 **Differentiating staged-workflow tools from ordinary ones.** Since these
 are conceptually different from `run_digest_math`-style tools (long-
 running, many internal sub-calls, one final result — not a quick
@@ -588,7 +600,36 @@ distinction:
   ground truth, not compose's own discovery. A stage whose own run raises
   an exception is treated identically to one whose `produces` files just
   didn't show up: recorded as failed, its outputs absent for every later
-  stage, pipeline continues.
+  stage, pipeline continues. **Correction (2026-08-29):** this was
+  documented here as already built, but the loop had no actual
+  `try`/`except` around a stage's `session.send()` — an exception
+  propagated out of the whole staged run uncaught. Fixed as part of #52
+  (below), so this description is now actually true.
+- **A `produces`/`needs` file's mere existence isn't enough to trust it —
+  and not every stage failure is safe to shrug off** — **Decided
+  (2026-08-29, issue #52):** live-observed with a deliberately mismatched
+  account identity: `morning-digest`'s stage 1 correctly refused to
+  proceed past the mismatch, but its own `produces` file
+  (`results/digest_{date}.json`) already existed on disk from a legitimate
+  run hours earlier that same day, so the existence check read it as
+  "succeeded" anyway — stages 2-4 ran on that stale file, and the user
+  never saw any sign anything was wrong (only `compose`'s text is ever
+  surfaced — see §8's 2026-08-29 revision). Two fixes:
+  - `_exists()` (`engine/staged_skills.py`) now takes an optional
+    `min_mtime` — a `needs`/`produces` match only counts if it was written
+    at or after this run's own start time (with a small slack constant for
+    filesystem mtime-rounding). This alone fixes the "next stage told a
+    stale file is present" half of the bug for any staged skill, whether
+    or not it uses the fix below.
+  - A stage may declare `critical: true` (validated at load time —
+    `engine/skills.py`'s `_validate_stage_order` rejects `critical: true`
+    with no `produces`, since there'd be nothing to check). If a critical
+    stage's `produces` check fails, the run aborts immediately rather than
+    continuing to the next stage — deliberately opt-in, so the existing
+    fail-open behavior above is unchanged for stages that don't ask for
+    the stronger guarantee (e.g. `surveillance`'s NSE-circuit-open case,
+    still a soft, continuable failure). `morning-digest`'s stage 1 is the
+    only stage marked `critical` today.
 - **Per-stage vs. aggregate turn reporting** — **Decided (2026-08-07):**
   per-stage. Today's `[matches ...]` / `[engine saved ...]` / `[budget
   ...]` console diagnostics are printed once per turn; under staging, each

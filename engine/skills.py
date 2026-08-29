@@ -107,15 +107,29 @@ def load_skill_body(skill_name: str) -> str:
 
 
 def _validate_stage_order(skill_name: str, stages: list[dict]) -> None:
-    """Raises ValueError if a stage's `needs` names a file that only a
-    stage at the same or later position `produces` — an authoring mistake
-    caught at load time, not discovered later as a confusing missing-file
-    gap (docs/staged-skill-execution-design.md §5, "Order validation")."""
+    """Raises ValueError for two SKILL.md authoring mistakes, caught at
+    load time rather than discovered later as a confusing runtime gap:
+
+    - a stage's `needs` names a file that only a stage at the same or
+      later position `produces` (docs/staged-skill-execution-design.md
+      §5, "Order validation").
+    - a stage declares `critical: true` with no `produces` (issue #52) —
+      `run_staged_skill`'s abort check only fires off a stage's own
+      `produces` glob check, so a `critical` stage with nothing declared
+      there would silently never abort, defeating the point of marking it
+      critical in the first place.
+    """
     all_produces: set[str] = set()
     for stage in stages:
         all_produces.update(stage.get("produces") or [])
     produced_so_far: set[str] = set()
     for stage in stages:
+        if stage.get("critical") and not stage.get("produces"):
+            raise ValueError(
+                f"{skill_name}: stage {stage.get('id')!r} declares critical: true but no "
+                f"produces — a critical stage needs produces so run_staged_skill has "
+                f"something to check before deciding whether to abort"
+            )
         for need in stage.get("needs") or []:
             if need in all_produces and need not in produced_so_far:
                 raise ValueError(

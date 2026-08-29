@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import dataclasses
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,14 +35,37 @@ from engine.time_ist import today_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import augment_prompt_with_workspace
 
+# Subtracted from a staged run's own start time before comparing it to a
+# `needs`/`produces` file's mtime (see `run_staged_skill`'s `min_mtime`
+# use) — absorbs filesystem mtime-rounding and the gap between capturing
+# `run_started_at` and a fast stage's first write. Not a real risk on this
+# repo's target OS (APFS is sub-second), but cheap insurance; irrelevant to
+# the case this exists for — telling a same-day file from *this* run apart
+# from one left over from a run hours earlier — where the gap is orders of
+# magnitude larger than this slack.
+_FRESHNESS_SLACK_SECONDS = 2.0
 
-def _exists(resolved_pattern: str) -> bool:
+
+def _exists(resolved_pattern: str, *, min_mtime: float | None = None) -> bool:
     """`resolved_pattern` is a repo-root-relative path/glob, already run
     through `skills.resolve_pattern` — matches the glob-based existence
     check `expected_outputs`/`match_changed_files` already use, rather
     than a plain `Path.exists()`, so a `needs`/`produces` entry can use a
-    wildcard the same way `expected_outputs` can."""
-    return any(skills.REPO_ROOT.glob(resolved_pattern))
+    wildcard the same way `expected_outputs` can.
+
+    `min_mtime`, when given, requires a match to have been written at or
+    after that time — not just to exist. Without this, a `needs`/`produces`
+    check can't tell "this run's stage actually wrote this file" from "a
+    file with this exact name is already sitting there from an earlier
+    run, same date tag" — live-observed 2026-08-29 (issue #52): a stage
+    that correctly declined to write its output because of a detected
+    account-identity mismatch was still reported as having succeeded,
+    because an hours-old file from a legitimate earlier run that day
+    happened to already exist at that same path."""
+    matches = skills.REPO_ROOT.glob(resolved_pattern)
+    if min_mtime is None:
+        return any(matches)
+    return any(p.stat().st_mtime >= min_mtime for p in matches)
 
 
 def _workspace_name(workspace_root: Path) -> str:
@@ -85,20 +110,48 @@ async def run_staged_skill(
     *,
     workspace_root: Path,
     date: str,
+    now: Callable[[], float] = time.time,
 ) -> tuple[str, list[tuple[str, str, Path]]]:
     """Runs each declared stage as its own fresh session — a new
     `harness.open_session()` connection per stage, not just a new
     `send()` on one session, since only a new connection actually resets
     accumulated context (§5's "critical, non-obvious detail"). Returns the
-    final (compose) stage's text and every stage's captures concatenated,
-    for the caller to build one aggregated Sources footer from and save
-    (§6 — one footer for the whole run, not one per stage).
+    final stage's text (ordinarily `compose`'s — see the `critical` note
+    below) and every stage's captures concatenated, for the caller to
+    build one aggregated Sources footer from and save (§6 — one footer for
+    the whole run, not one per stage).
 
-    Partial-stage failure is fail-open (§9, decided 2026-08-05): a stage
-    whose declared `produces` files don't land — whether it raised or
-    just silently didn't write them — is recorded as failed, and the next
-    stage's prompt is built listing that gap explicitly via `missing`,
-    rather than assuming every prior stage succeeded.
+    Partial-stage failure is fail-open by default (§9, decided
+    2026-08-05): a stage whose declared `produces` files don't land —
+    whether it raised or just silently didn't write them — is recorded as
+    failed, and the next stage's prompt is built listing that gap
+    explicitly via `missing`, rather than assuming every prior stage
+    succeeded. A stage's own `produces`/`needs` check only counts a file
+    written at or after this run's own start (`now`, `min_mtime` on
+    `_exists`) — otherwise a same-named file left over from an earlier run
+    that day reads as "present" regardless of what this run's stage
+    actually did (issue #52).
+
+    A stage may opt out of fail-open by declaring `critical: true` in its
+    SKILL.md frontmatter (checked at load time by
+    `engine/skills.py::_validate_stage_order` — a `critical` stage with no
+    `produces` is rejected there as a no-op). When a `critical` stage's own
+    `produces` check fails, the remaining stages never run: this function
+    returns immediately with *that stage's own session text* as the final
+    text, instead of the usual last-stage-wins text, since no later stage
+    (in particular `compose`) will ever run to say anything. This is the
+    fix for issue #52, live-observed 2026-08-29: `morning-digest`'s stage 1
+    correctly detected and refused to proceed past an account-identity
+    mismatch, but stages 2-4 ran anyway on a stale-but-present digest file
+    from hours earlier, and the user never saw any indication anything was
+    wrong — only the last (`compose`) stage's text ever reached them.
+
+    A stage whose own session raises partway through `send()` is caught
+    and treated the same as one that silently didn't write its `produces`
+    files — printed, recorded as failed, `text` set to a short synthesized
+    note — rather than propagating out and crashing the whole staged run.
+    (This was previously documented, inaccurately, as already being the
+    case — see the design doc's §9 history.)
 
     Each stage's own tool calls are written to their own audit log
     (`engine/tool_audit.py`, issue #47) — live-observed 2026-08-29: without
@@ -126,6 +179,9 @@ async def run_staged_skill(
     total_cost_usd = 0.0
     total_duration_ms = 0
     total_tokens = 0
+    stages_run = 0
+    run_started_at = now()
+    min_mtime = run_started_at - _FRESHNESS_SLACK_SECONDS
 
     # workspace_name is workspace_root's own path relative to REPO_ROOT
     # ("workspace", or ".dev-workspaces/<name>" under MINTY_WORKSPACE), not
@@ -134,12 +190,13 @@ async def run_staged_skill(
     # prefix to reintroduce (docs/next-phase-plan.md §4: one fixed,
     # unnamed workspace, no naming decision left anywhere).
     for stage in stages:
+        stages_run += 1
         needed = [
             skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
             for p in stage.get("needs", [])
         ]
-        present = [p for p in needed if _exists(p)]
-        missing = [p for p in needed if not _exists(p)]
+        present = [p for p in needed if _exists(p, min_mtime=min_mtime)]
+        missing = [p for p in needed if not _exists(p, min_mtime=min_mtime)]
         # Augmented the same way engine/interactive.py's _run_turn augments
         # every other session's prompt — without this, a stage nudged by
         # the always-on update_workspace_notes/stage_memory_candidate
@@ -154,10 +211,15 @@ async def run_staged_skill(
         tokens = 0
         async with harness.open_session(stage_tools) as session:
             text = ""
-            async for chunk in session.send(prompt, workspace_root=workspace_root):
-                text += chunk
+            try:
+                async for chunk in session.send(prompt, workspace_root=workspace_root):
+                    text += chunk
+            except Exception as exc:  # noqa: BLE001 - a stage failing must not crash the whole run
+                print(f"[stage] {stage['id']}: raised {exc!r}", file=sys.stderr)
+                text = f"Stage {stage['id']} failed to complete: {exc}"
+
             all_captures.extend(session.last_captures)
-            final_text = text  # only the last (compose) stage's text is the actual digest
+            final_text = text  # ordinarily overwritten by later stages — see the critical-abort return below
             for line in session.last_over_budget:
                 print(f"[stage {stage['id']}] [budget] {line}")
             try:
@@ -175,7 +237,9 @@ async def run_staged_skill(
                 skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
                 for p in stage.get("produces", [])
             ]
-            stage_status[stage["id"]] = all(_exists(p) for p in expected) if expected else True
+            stage_status[stage["id"]] = (
+                all(_exists(p, min_mtime=min_mtime) for p in expected) if expected else True
+            )
 
             # EngineResult.raw is the harness-native ResultMessage, which
             # already carries duration_ms/total_cost_usd/usage per SDK
@@ -191,15 +255,29 @@ async def run_staged_skill(
         total_cost_usd += cost_usd
         total_tokens += tokens
 
+        ok = stage_status[stage["id"]]
+        if not ok and stage.get("critical"):
+            remaining = len(stages) - stages_run
+            print(
+                f"[stage] {stage['id']}: CRITICAL — expected output missing, "
+                f"aborting {remaining} remaining stage(s) "
+                f"({duration_ms / 1000:.1f}s, ${cost_usd:.4f}, {tokens} tok)"
+            )
+            print(
+                f"[staged run total] {total_duration_ms / 1000:.1f}s, "
+                f"${total_cost_usd:.4f}, {total_tokens} tok across {stages_run} of {len(stages)} stages (aborted)"
+            )
+            return final_text, all_captures
+
         print(
             f"[stage] {stage['id']}: "
-            f"{'ok' if stage_status[stage['id']] else 'expected output missing'} "
+            f"{'ok' if ok else 'expected output missing'} "
             f"({duration_ms / 1000:.1f}s, ${cost_usd:.4f}, {tokens} tok)"
         )
 
     print(
         f"[staged run total] {total_duration_ms / 1000:.1f}s, "
-        f"${total_cost_usd:.4f}, {total_tokens} tok across {len(stages)} stages"
+        f"${total_cost_usd:.4f}, {total_tokens} tok across {stages_run} of {len(stages)} stages"
     )
     return final_text, all_captures
 

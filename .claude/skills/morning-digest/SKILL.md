@@ -38,6 +38,7 @@ deterministic_scripts:
 # on disk to mechanically check right when that stage's session closes.
 stages:
   - id: portfolio_and_market
+    critical: true
     instructions: |
       This is Stage 1 (Portfolio & market data) of this run — steps 1-6 in
       the Steps section above. Confirm the workspace, check market status,
@@ -46,6 +47,13 @@ stages:
       run_digest_math. Stop once this stage's steps are done — surveillance,
       news, and composing the brief are separate stages, not part of this
       one.
+
+      This stage is critical: if you stop early (e.g. step 3's account-
+      identity check comes back "mismatch"), the rest of this run will not
+      execute, and your reply here is what the user sees directly — not a
+      later stage's summary. Write a complete, standalone message: state
+      plainly what happened and why you stopped, don't assume anything
+      else will follow it.
     produces:
       - "{workspace}/results/digest_{date}.json"
   - id: surveillance
