@@ -71,6 +71,7 @@ from engine import skills
 from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.holdings_fetch import build_fetch_holdings_server
+from engine.identity_check import build_identity_check_server
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
@@ -89,6 +90,7 @@ _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
 _WORKSPACE_NOTES_SERVER_NAME = "workspace_notes"
 _MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
 _FETCH_HOLDINGS_SERVER_NAME = "fetch_holdings"
+_IDENTITY_CHECK_SERVER_NAME = "identity_check"
 
 # Blocked unconditionally, everywhere — not via GuardrailPolicy (that's
 # scoped to the no-order-execution guarantee only): a full account's
@@ -119,12 +121,13 @@ _KITE_LOGIN_SYSTEM_PROMPT = (
     "Zerodha OAuth grant technically permits. Say this at the moment you "
     "ask them to connect, not only if they ask later.\n\n"
     "Separately: if you're about to call any other kite_gateway tool ad "
-    "hoc — not as part of a skill step that already calls get_profile "
-    "itself (morning-digest step 3, portfolio-health-check step 2) — call "
-    "kite_gateway.get_profile once first. This is what populates Minty's "
-    "own account-identity anchor (data/account_identity.json); skipping "
-    "it leaves the Kite connection status line reporting 'not connected' "
-    "on every future session even once you have real cached data."
+    "hoc — not as part of a skill step that already calls "
+    "check_identity_match itself (morning-digest, portfolio-health-check, "
+    "thesis-tracker) — call check_identity_match once first. This is what "
+    "populates Minty's own account-identity anchor "
+    "(data/account_identity.json); skipping it leaves the Kite connection "
+    "status line reporting 'not connected' on every future session even "
+    "once you have real cached data."
 )
 
 # Issue #14, piece 1 ("explicit remember"): `update_workspace_notes` is
@@ -340,6 +343,13 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     staged_skill_names = [name for name in skill_names if skills.load_stages(name)]
     native_skill_names = [name for name in skill_names if name not in staged_skill_names]
 
+    # One instance per `_build_options` call, i.e. per `open_session()` —
+    # shared by the two hooks below and by check_identity_match (issue #48)
+    # via closure, so an identity check earlier in a multi-turn session
+    # still gates a later turn's call, not just the turn that did the
+    # checking (issue #19).
+    identity_state = IdentityGuardState()
+
     mcp_servers = dict(tools.mcp_servers)
     skill_scripts_server = build_skill_tools_server(skill_names)
     if skill_scripts_server is not None:
@@ -354,17 +364,17 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     # path available, since kite_gateway's own get_holdings is disallowed
     # below (issue #46).
     mcp_servers[_FETCH_HOLDINGS_SERVER_NAME] = build_fetch_holdings_server()
+    # Same unconditional treatment — every session needs the deterministic
+    # identity-match check available, replacing the prose Read-and-compare
+    # steps portfolio-health-check/morning-digest/thesis-tracker used to do
+    # themselves (issue #48).
+    mcp_servers[_IDENTITY_CHECK_SERVER_NAME] = build_identity_check_server(identity_state)
     if tools.include_staged_tools and staged_skill_names:
         staged_workflows_server = build_staged_workflow_tools_server(staged_skill_names, tools)
         if staged_workflows_server is not None:
             mcp_servers[STAGED_WORKFLOWS_SERVER_NAME] = staged_workflows_server
 
     server_names = list(mcp_servers.keys())
-    # One instance per `_build_options` call, i.e. per `open_session()` —
-    # shared by the two hooks below via closure, so an identity check
-    # earlier in a multi-turn session still gates a later turn's call, not
-    # just the turn that did the checking (issue #19).
-    identity_state = IdentityGuardState()
     kwargs = {
         "mcp_servers": mcp_servers,
         # Found live during the interactive-session smoke test: without this,

@@ -35,24 +35,26 @@ regardless of which broker it came from.
    Write into its `data/`, `results/`, and `notes.md` as documented below.
 
 2. **Verify account identity, then fetch real holdings from the connected
-   broker.** Read `data/account_identity.json` at the **repo root** first,
-   if it exists (not inside the workspace — this is an install-wide
-   anchor, not workspace content, shared with morning-digest). Then call
-   `kite_gateway.get_profile` and compare its `user_id` against whatever
-   you just read.
-   - **No anchor file yet:** the engine writes one automatically, the
-     moment this call succeeds — nothing for you to do. Just proceed.
-   - **Anchor existed and matches:** proceed.
-   - **Anchor existed and doesn't match:** **Stop** — report plainly that
-     a different Zerodha account is connected than expected, and don't
-     fetch or overwrite the workspace's `data/holdings_<date>.json`. Minty
-     is a single-account tool by design — a second account's data would
-     silently corrupt the cached snapshot rather than raise an error.
-     There's no tool call that can update the anchor — it's engine-managed
-     and write-once (see `engine/tool_capture.py`) — so this stays flagged
-     on every run until a human resolves it by hand (deleting
-     `data/account_identity.json`), not something you can fix from inside
-     a conversation.
+   broker.** Call the `check_identity_match` tool (no arguments) — a
+   deterministic engine tool that calls `get_profile` itself and compares
+   it against `data/account_identity.json` (an install-wide anchor at the
+   **repo root**, not workspace content, shared with morning-digest).
+   Don't `Read` the anchor file or call `kite_gateway.get_profile` yourself
+   for this — the comparison is engine-computed, not something to reason
+   about from raw JSON. Branch on its `status` field:
+   - **`"no_anchor"` or `"match"`:** proceed.
+   - **`"mismatch"`:** **Stop** — report plainly that a different Zerodha
+     account is connected than expected (cite the tool's own
+     `anchor_user_id`/`live_user_id`), and don't fetch or overwrite the
+     workspace's `data/holdings_<date>.json`. Minty is a single-account
+     tool by design — a second account's data would silently corrupt the
+     cached snapshot rather than raise an error. There's no tool call that
+     can update the anchor — it's engine-managed and write-once (see
+     `engine/tool_capture.py`) — so this stays flagged on every run until a
+     human resolves it by hand (deleting `data/account_identity.json`),
+     not something you can fix from inside a conversation.
+   - **An error result** (e.g. no active Kite session): handle it the same
+     way you'd handle a `get_profile` failure — present the login flow.
 
    Currently `kite_gateway` is the only connected broker — call
    `fetch_holdings(workspace_root=...)`, not `kite_gateway.get_holdings`

@@ -22,6 +22,7 @@ own "generic tool factory, not per-skill engine code" pattern.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from engine import skills
 from engine.harnesses.base import Harness, ToolConfig
 from engine.sources_footer import DISCLAIMER, build_footer
 from engine.time_ist import today_ist
+from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import augment_prompt_with_workspace
 
 
@@ -97,6 +99,21 @@ async def run_staged_skill(
     just silently didn't write them — is recorded as failed, and the next
     stage's prompt is built listing that gap explicitly via `missing`,
     rather than assuming every prior stage succeeded.
+
+    Each stage's own tool calls are written to their own audit log
+    (`engine/tool_audit.py`, issue #47) — live-observed 2026-08-29: without
+    this, a staged run's per-stage tool calls (e.g. whether a given stage
+    actually called `check_identity_match` before fetching holdings) were
+    silently unrecoverable after the fact, since `ClaudeAgentSDKHarness.run()`
+    and `engine/interactive.py`'s `_repl` were the only two callers that
+    ever persisted `session.last_tool_calls` — this function computed it
+    (every session does) but never wrote it down. Named by each stage's
+    own start time (same convention `run()` uses for a single-shot call),
+    not by one shared timestamp for the whole staged run — two stages that
+    happen to start within the same second will share a file (append, not
+    overwrite), which is fine: the goal is that every stage's tool calls
+    end up recoverable and in order, not a strict one-file-per-stage
+    guarantee.
     """
     # include_staged_tools=False: a stage's own session must never see
     # run_staged_<skill> itself, or the model could recursively re-trigger
@@ -143,6 +160,16 @@ async def run_staged_skill(
             final_text = text  # only the last (compose) stage's text is the actual digest
             for line in session.last_over_budget:
                 print(f"[stage {stage['id']}] [budget] {line}")
+            try:
+                # getattr, not a raw attribute access — matches
+                # engine/interactive.py's own defensive read of this same
+                # attribute, so a test double standing in for a real
+                # session doesn't need to carry it.
+                append_tool_calls(new_audit_log_path(workspace_root), getattr(session, "last_tool_calls", []))
+            except OSError as exc:
+                # Audit-only side effect — must never take the staged run
+                # down with it (same convention as ClaudeAgentSDKHarness.run()).
+                print(f"[audit] couldn't write stage {stage['id']}'s tool-call log: {exc}", file=sys.stderr)
 
             expected = [
                 skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)

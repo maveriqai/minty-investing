@@ -9,6 +9,7 @@ the design doc's §8, "Confirmed live 2026-08-07").
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -20,10 +21,11 @@ FAKE_TOOLS = ToolConfig(mcp_servers={}, guardrail=GuardrailPolicy(), skills=["mo
 
 
 class _FakeSession:
-    def __init__(self, chunks, *, captures=None, over_budget=None, raw=None):
+    def __init__(self, chunks, *, captures=None, over_budget=None, raw=None, tool_calls=None):
         self._chunks = chunks
         self.last_captures = captures or []
         self.last_over_budget = over_budget or []
+        self.last_tool_calls = tool_calls or []
         self.last_result = EngineResult(ok=True, text="".join(chunks), error_kind=None, raw=raw)
         self.received_prompts: list[str] = []
 
@@ -109,6 +111,45 @@ def test_run_staged_skill_concatenates_captures_across_stages():
     assert len(all_captures) == 2
     assert all_captures[0][1] == "get_quote"
     assert all_captures[1][1] == "get_news"
+
+
+def test_run_staged_skill_writes_each_stages_tool_calls_to_its_own_audit_log(tmp_path):
+    """Issue #47's audit log used to silently drop every staged run's
+    per-stage tool calls — live-observed 2026-08-29, a real deliberate
+    account-mismatch test left no way to confirm whether a given stage had
+    even attempted the identity check. Each stage's `session.last_tool_calls`
+    must now land in its own sessions/*_tool_calls.jsonl file, same as a
+    single-shot ClaudeAgentSDKHarness.run() call already gets."""
+    stages = [_stage("a"), _stage("b")]
+    sessions = [
+        _FakeSession(["A"], tool_calls=[{"tool_name": "mcp__identity_check__check_identity_match"}]),
+        _FakeSession(["B"], tool_calls=[{"tool_name": "mcp__fetch_holdings__fetch_holdings"}]),
+    ]
+    harness = _FakeHarness(sessions)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+
+    asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-07"
+        )
+    )
+
+    # Named by each stage's own start time (same convention as a
+    # single-shot ClaudeAgentSDKHarness.run() call) — in this fake,
+    # instant-running harness both stages can legitimately land the same
+    # second-granularity timestamp and share one file; a real run with
+    # stages seconds apart would produce separate files. Either way, every
+    # stage's tool calls must be recoverable, in order.
+    audit_logs = sorted((workspace_root / "sessions").glob("*_tool_calls.jsonl"))
+    assert len(audit_logs) >= 1
+    logged_tool_names = [
+        json.loads(line)["tool_name"] for path in audit_logs for line in path.read_text().splitlines()
+    ]
+    assert logged_tool_names == [
+        "mcp__identity_check__check_identity_match",
+        "mcp__fetch_holdings__fetch_holdings",
+    ]
 
 
 def test_run_staged_skill_lists_a_prior_stages_missing_produces_in_the_next_prompt(tmp_path, monkeypatch):

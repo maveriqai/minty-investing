@@ -106,19 +106,33 @@ exist).
 
 ## Steps
 
-0. **Before triggering the staged run, confirm Kite is reachable.** Call
-   `kite_gateway.get_profile` once, in this top-level turn. If there's no
-   active session, present the `login` tool's returned URL, ask whether to
-   refresh, and **stop this turn there** — don't call
-   `run_staged_morning-digest` yet. A stage can't pause mid-run to ask you
-   anything (`run_staged_morning-digest` is one atomic call with no
-   back-and-forth once started, see docs/staged-skill-execution-design.md
-   §8), so this has to be a genuinely separate turn, not a question you ask
-   and then answer yourself by continuing anyway. Once the user replies —
-   confirming login, or saying to proceed anyway — call
-   `run_staged_morning-digest`: if they declined, step 3 below falls back
-   to the workspace's existing cached holdings rather than skipping the
-   digest.
+0. **Before triggering the staged run, confirm Kite is reachable and the
+   account matches.** Call the `check_identity_match` tool (no arguments)
+   once, in this top-level turn — a deterministic engine tool that calls
+   `get_profile` itself and compares it against `data/account_identity.json`
+   (an install-wide anchor at the **repo root**). Don't `Read` the anchor
+   file or call `kite_gateway.get_profile` yourself for this.
+   - **An error result** (no active session): present the `login` tool's
+     returned URL, ask whether to refresh, and **stop this turn there** —
+     don't call `run_staged_morning-digest` yet. A stage can't pause
+     mid-run to ask you anything (`run_staged_morning-digest` is one atomic
+     call with no back-and-forth once started, see
+     docs/staged-skill-execution-design.md §8), so this has to be a
+     genuinely separate turn, not a question you ask and then answer
+     yourself by continuing anyway. Once the user replies — confirming
+     login, or saying to proceed anyway — call `run_staged_morning-digest`:
+     if they declined, step 3 below falls back to the workspace's existing
+     cached holdings rather than skipping the digest.
+   - **`"mismatch"`:** **Stop here too** — same reporting as stage 1 step 3
+     below (cite the tool's own `anchor_user_id`/`live_user_id`) — and
+     don't call `run_staged_morning-digest` at all; there's no point
+     starting a staged run that stage 1's own check will only reject
+     anyway.
+   - **`"no_anchor"` or `"match"`:** proceed to call
+     `run_staged_morning-digest`. (Stage 1 runs in its own fresh session
+     with its own identity state — it still does its own
+     `check_identity_match` call in step 3 below; this top-level check is a
+     fail-fast, not a substitute for it.)
 
 ## Stage 1: Portfolio & market data
 
@@ -135,24 +149,28 @@ exist).
    result; if it's `False` the lookup degraded to a weekday-only check, so
    also sanity-check against the index quote in step 3.)
 
-3. **Verify account identity, then fetch real holdings from Kite.** Read
-   `data/account_identity.json` at the **repo root** first, if it exists
-   (not inside the workspace — this is an install-wide anchor, not
-   workspace content). Then call `kite_gateway.get_profile` and compare
-   its `user_id` against whatever you just read.
-   - **No anchor file yet:** the engine writes one automatically, the
-     moment this call succeeds — nothing for you to do. Just proceed.
-   - **Anchor existed and matches:** proceed.
-   - **Anchor existed and doesn't match:** **Stop** — don't fetch or
-     overwrite the workspace's `data/holdings_<date>.json`; report plainly
-     that a different Zerodha account is connected than expected. Minty is
-     a single-account tool by design, not multi-tenant — a second
-     account's data would silently corrupt the cached snapshot rather than
-     raise an error. There's no tool call that can update the anchor —
-     it's engine-managed and write-once (see `engine/tool_capture.py`) —
-     so this stays flagged on every run until a human resolves it by hand
-     (deleting `data/account_identity.json`), not something you can fix
-     from inside a conversation.
+3. **Verify account identity, then fetch real holdings from Kite.** Call
+   the `check_identity_match` tool (no arguments) — a deterministic engine
+   tool that calls `get_profile` itself and compares it against
+   `data/account_identity.json` (an install-wide anchor at the **repo
+   root**, not workspace content). This stage runs in its own fresh
+   session, independent of step 0's top-level check — call it again here
+   even if step 0 already passed. Branch on its `status` field:
+   - **`"no_anchor"` or `"match"`:** proceed.
+   - **`"mismatch"`:** **Stop** — don't fetch or overwrite the workspace's
+     `data/holdings_<date>.json`; report plainly that a different Zerodha
+     account is connected than expected (cite the tool's own
+     `anchor_user_id`/`live_user_id`). Minty is a single-account tool by
+     design, not multi-tenant — a second account's data would silently
+     corrupt the cached snapshot rather than raise an error. There's no
+     tool call that can update the anchor — it's engine-managed and
+     write-once (see `engine/tool_capture.py`) — so this stays flagged on
+     every run until a human resolves it by hand (deleting
+     `data/account_identity.json`), not something you can fix from inside
+     a conversation.
+   - **An error result** (e.g. no active Kite session): treat it the same
+     as step 0's error branch — the fallback to cached holdings below
+     applies here too.
 
    Then call `fetch_holdings(workspace_root=...)`, not
    `kite_gateway.get_holdings` directly (that raw tool is blocked — see
@@ -172,8 +190,8 @@ exist).
    Read it with the `Read` tool if you need to inspect it, rather than
    ad-hoc Bash.
 
-   **No active Kite session** (`get_profile`/`fetch_holdings` fails that
-   way, not a real error): don't stop the stage over it — this session has
+   **No active Kite session** (`check_identity_match`/`fetch_holdings`
+   fails that way, not a real error): don't stop the stage over it — this session has
    no memory of whether step 0 already asked about it, so just fall back.
    Glob the workspace's `data/` for the newest existing `holdings_*.json`
    and use that instead of a fresh fetch; skip the identity check (nothing

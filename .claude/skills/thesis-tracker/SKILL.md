@@ -54,23 +54,26 @@ tool, never eyeballed.
    - **Position**: long or short. A watchlist name skips the rest of this
      bullet entirely — nothing here touches Kite until the user says they
      actually own it. If this **is** a real holding, verify account
-     identity before pulling anything from Kite: read
-     `data/account_identity.json` at the **repo root** first, if it exists
-     (not inside the workspace — this is an install-wide anchor, shared
-     with morning-digest/portfolio-health-check). Then call
-     `kite_gateway.get_profile` and compare its `user_id` against whatever
-     you just read.
-     - **No anchor file yet:** the engine writes one automatically, the
-       moment this call succeeds — nothing for you to do. Just proceed.
-     - **Anchor existed and matches:** proceed.
-     - **Anchor existed and doesn't match:** **Stop** — report plainly
-       that a different Zerodha account is connected than expected, and
-       don't fetch or use holdings data for this thesis. There's no tool
-       call that can update the anchor — it's engine-managed and
-       write-once (see `engine/tool_capture.py`) — so this stays flagged
-       on every run until a human resolves it by hand (deleting
+     identity before pulling anything from Kite: call the
+     `check_identity_match` tool (no arguments) — a deterministic engine
+     tool that calls `get_profile` itself and compares it against
+     `data/account_identity.json` (an install-wide anchor at the **repo
+     root**, shared with morning-digest/portfolio-health-check). Don't
+     `Read` the anchor file or call `kite_gateway.get_profile` yourself for
+     this. Branch on its `status` field:
+     - **`"no_anchor"` or `"match"`:** proceed.
+     - **`"mismatch"`:** **Stop** — report plainly that a different
+       Zerodha account is connected than expected (cite the tool's own
+       `anchor_user_id`/`live_user_id`), and don't fetch or use holdings
+       data for this thesis. There's no tool call that can update the
+       anchor — it's engine-managed and write-once (see
+       `engine/tool_capture.py`) — so this stays flagged on every run
+       until a human resolves it by hand (deleting
        `data/account_identity.json`), not something you can fix from
        inside a conversation.
+     - **An error result** (e.g. no active Kite session): handle it the
+       same way you'd handle a `get_profile` failure — present the login
+       flow.
 
      Once verified, pull actual quantity/average price from
      `kite_gateway.get_holdings` (read-only; never `place_order`/

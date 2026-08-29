@@ -25,17 +25,17 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
-    # workspace_notes, memory_candidates, and fetch_holdings are always
-    # added (unlike skill_scripts, which is conditional) — see
+    # workspace_notes, memory_candidates, fetch_holdings, and identity_check
+    # are always added (unlike skill_scripts, which is conditional) — see
     # cas._build_options — so the guardrail's own denied server list must
-    # include all three too. get_holdings itself is unconditionally
+    # include all four too. get_holdings itself is unconditionally
     # disallowed on top of the guardrail's own denials (issue #46) — not
     # via GuardrailPolicy, which stays scoped to order-tool safety only.
     expected = tools.guardrail.denied_tool_names(
-        [*FAKE_MCP_SERVERS.keys(), "workspace_notes", "memory_candidates", "fetch_holdings"]
+        [*FAKE_MCP_SERVERS.keys(), "workspace_notes", "memory_candidates", "fetch_holdings", "identity_check"]
     ) | {"mcp__kite_gateway__get_holdings"}
     assert set(options.disallowed_tools) == expected
-    assert len(expected) == 5 * len(ORDER_TOOL_NAMES) + 1
+    assert len(expected) == 6 * len(ORDER_TOOL_NAMES) + 1
 
 
 def test_build_options_passes_mcp_servers_and_skills_through_unchanged():

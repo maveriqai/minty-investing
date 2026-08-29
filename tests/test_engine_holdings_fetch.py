@@ -158,6 +158,51 @@ def test_untrustworthy_result_is_not_saved_and_is_reported_honestly(tmp_path, mo
     assert not (workspace / "data" / f"holdings_{_TODAY}.json").exists()
 
 
+def test_wrapped_single_content_block_response_is_unwrapped_before_saving(tmp_path, monkeypatch):
+    """Live-observed 2026-08-29 (issue #49): Kite's get_holdings can come
+    back with `data` as a single wrapped content block whose own `text`
+    field holds the real flat holdings list, serialized as a string,
+    instead of the normal flat list directly. Must be unwrapped before
+    saving/counting, not saved (or counted) as-is."""
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    (workspace / "data").mkdir(parents=True)
+
+    real_holdings = [{"tradingsymbol": f"STOCK{i}", "quantity": 10} for i in range(96)]
+    wrapped_data = [
+        {"type": "text", "text": json.dumps(real_holdings), "annotations": None, "meta": None}
+    ]
+    _patch_kite_call(monkeypatch, _envelope_result(wrapped_data))
+
+    result = _run(holdings_fetch._handler({"workspace_root": str(workspace)}))
+
+    saved = workspace / "data" / f"holdings_{_TODAY}.json"
+    assert saved.exists()
+    saved_text = saved.read_text()
+    assert json.loads(saved_text)["data"] == real_holdings
+    # Regression check, live-observed 2026-08-29: re-serializing the
+    # unwrapped envelope compactly (no indent) collapsed the whole file to
+    # one line, breaking any later offset/limit Read of it (e.g.
+    # thesis-tracker looking up a single symbol) regardless of range.
+    assert saved_text.count("\n") > 10
+
+    text = result["content"][0]["text"]
+    assert not result.get("is_error")
+    assert "96 holdings" in text
+
+
+def test_normalize_holdings_data_leaves_genuine_data_shapes_untouched():
+    real_holdings = [{"tradingsymbol": "STOCK0", "quantity": 10}]
+    assert holdings_fetch._normalize_holdings_data(real_holdings) == real_holdings
+    assert holdings_fetch._normalize_holdings_data([]) == []
+    # A single content block whose text isn't valid JSON, or doesn't decode
+    # to a list, must fall back to the original value rather than raising.
+    not_json = [{"type": "text", "text": "not json"}]
+    assert holdings_fetch._normalize_holdings_data(not_json) == not_json
+    not_a_list = [{"type": "text", "text": json.dumps({"foo": "bar"})}]
+    assert holdings_fetch._normalize_holdings_data(not_a_list) == not_a_list
+
+
 def test_holdings_count_handles_non_list_data():
     assert holdings_fetch._holdings_count(json.dumps({"source": "kite", "as_of": "x", "data": "not-a-list"})) is None
     assert holdings_fetch._holdings_count("not json at all") is None

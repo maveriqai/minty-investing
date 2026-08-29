@@ -5,17 +5,28 @@ issue #19.
 write-once, so no tool call can ever silently redirect Minty at a
 different account. What that alone doesn't do is *use* the anchor:
 comparing a live `get_profile` response against it and stopping before a
-mismatched account's holdings/positions get fetched. Until now that
-compare-and-stop logic was pure prose, repeated in three skills' own
-`SKILL.md` steps — it depended on the model reading the anchor, calling
-`get_profile`, comparing, and refusing correctly every single time, the
-same category of model-judgement dependency the write-once anchor design
-was built specifically to avoid for the *write* side (see
-`docs/next-phase-plan.md` §4's three-design history).
+mismatched account's holdings/positions get fetched. Originally (issue
+#19) that compare-and-stop logic was pure prose, repeated in three skills'
+own `SKILL.md` steps — it depended on the model reading the anchor,
+calling `get_profile`, comparing, and refusing correctly every single
+time, the same category of model-judgement dependency the write-once
+anchor design was built specifically to avoid for the *write* side (see
+`docs/next-phase-plan.md` §4's three-design history). Live-verified
+2026-08-29 that this was never actually fixed: the compare-and-stop
+narration still came from the model's own prose, not from anything this
+module surfaced — see issue #48.
 
-This module backs a `PostToolUse` hook (records the live `user_id` the
-moment `get_profile` returns) and a `PreToolUse` hook (hard-denies
-`get_holdings`/`get_positions` once a mismatch is confirmed) in
+As of #48, the comparison itself is a real tool
+(`engine.identity_check.check_identity_match`) that the three skills call
+directly instead of reading and comparing JSON themselves — it reuses
+`IdentityGuardState`/`user_id_from_get_profile_response` below and returns
+a structured `{"status", "anchor_user_id", "live_user_id"}` result. This
+module's own hooks are now purely the backstop, not the primary path: a
+`PostToolUse` hook (records the live `user_id` the moment any *direct*
+`get_profile` call returns — `check_identity_match`'s own in-process call
+updates the same shared state itself, see `engine/identity_check.py`) and
+a `PreToolUse` hook (hard-denies `get_holdings`/`get_positions` once a
+mismatch is confirmed, from either path) in
 `engine/harnesses/claude_agent_sdk.py` — the same hard-deny-hook shape
 already used for the six order tools.
 
