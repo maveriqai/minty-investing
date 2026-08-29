@@ -108,10 +108,23 @@ def test_anchor_mismatch_reports_mismatch_and_trips_shared_state(tmp_path, monke
 
 
 def test_no_active_session_error_is_forwarded_and_anchor_untouched(tmp_path, monkeypatch):
+    """The fake result here matches the real shape
+    mcp/kite_gateway/server.py's call_tool actually produces on error
+    (issue #50 follow-up) — a JSON-serialized {"source","as_of",
+    "data":{"error":[...]}} envelope, not a plain string — so this also
+    proves the envelope gets unwrapped down to just the human-readable
+    message, not forwarded whole."""
     identity_file = tmp_path / "data" / "account_identity.json"
     _patch_identity_file(monkeypatch, identity_file)
+    envelope_text = json.dumps(
+        {
+            "source": "kite",
+            "as_of": "2026-08-29 09:00 IST",
+            "data": {"error": [{"type": "text", "text": "Please log in first using the login tool"}]},
+        }
+    )
     error_result = types.CallToolResult(
-        content=[types.TextContent(type="text", text="Please log in first using the login tool")],
+        content=[types.TextContent(type="text", text=envelope_text)],
         isError=True,
     )
     _patch_kite_call(monkeypatch, error_result)
@@ -121,5 +134,6 @@ def test_no_active_session_error_is_forwarded_and_anchor_untouched(tmp_path, mon
 
     assert result["is_error"] is True
     assert "Please log in first using the login tool" in result["content"][0]["text"]
+    assert '"source"' not in result["content"][0]["text"]
     assert not identity_file.exists()
     assert state.mismatch is False

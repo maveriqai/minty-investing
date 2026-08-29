@@ -60,7 +60,7 @@ from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
-from engine.kite_gateway_inprocess import get_kite_gateway_server
+from engine.kite_gateway_inprocess import extract_kite_error_message, get_kite_gateway_server
 from engine.tool_capture import save_tool_result
 from engine.workspace import WORKSPACE_ROOT_ARG_DESCRIPTION as _WORKSPACE_ROOT_DESCRIPTION
 from engine.workspace import resolve_workspace_root_arg as _resolve_workspace_root
@@ -133,9 +133,16 @@ async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         # today (e.g. "Please log in first using the login tool") —
         # forwarded verbatim so morning-digest's existing "no active
         # session -> fall back to cached holdings" prose keeps working
-        # unchanged.
+        # unchanged. extract_kite_error_message unwraps the gateway's own
+        # {"source","as_of","data":{"error":[...]}} envelope down to just
+        # that message — see its docstring (issue #50 follow-up).
         return {
-            "content": [{"type": "text", "text": f"kite_gateway.get_holdings error: {text}"}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"kite_gateway.get_holdings error: {extract_kite_error_message(text)}",
+                }
+            ],
             "is_error": True,
         }
 

@@ -121,13 +121,27 @@ def test_no_active_session_error_is_forwarded_recognizably(tmp_path, monkeypatch
     on a real 'no active session' failure, never on an account-mismatch
     denial (that's caught earlier, by the identity PreToolUse hook, before
     this handler ever runs) — so Kite's own error text must survive
-    verbatim, not get replaced with fetch_holdings' own generic wording."""
+    recognizably, not get replaced with fetch_holdings' own generic
+    wording. The fake result here matches the real shape
+    mcp/kite_gateway/server.py's call_tool actually produces on error
+    (issue #50 follow-up) — a JSON-serialized {"source","as_of",
+    "data":{"error":[...]}} envelope, not a plain string — so this also
+    proves the envelope gets unwrapped down to just the human-readable
+    message, not forwarded whole."""
     _patch_roots(monkeypatch, tmp_path)
     workspace = tmp_path / "workspace"
     (workspace / "data").mkdir(parents=True)
 
+    envelope_text = json.dumps(
+        {
+            "source": "kite",
+            "as_of": "2026-08-29 22:10 IST",
+            "data": {"error": [{"type": "text", "text": "Please log in first using the login tool"}]},
+        },
+        indent=2,
+    )
     error_result = types.CallToolResult(
-        content=[types.TextContent(type="text", text="Please log in first using the login tool")],
+        content=[types.TextContent(type="text", text=envelope_text)],
         isError=True,
     )
     _patch_kite_call(monkeypatch, error_result)
@@ -136,6 +150,7 @@ def test_no_active_session_error_is_forwarded_recognizably(tmp_path, monkeypatch
 
     assert result["is_error"] is True
     assert "Please log in first using the login tool" in result["content"][0]["text"]
+    assert '"source"' not in result["content"][0]["text"]
     assert not (workspace / "data" / f"holdings_{_TODAY}.json").exists()
 
 

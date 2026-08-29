@@ -32,7 +32,7 @@ from typing import Any
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
 from engine import kite_status
-from engine.kite_gateway_inprocess import get_kite_gateway_server
+from engine.kite_gateway_inprocess import extract_kite_error_message, get_kite_gateway_server
 from engine.kite_identity import IdentityGuardState, user_id_from_get_profile_response
 from engine.tool_capture import ACCOUNT_IDENTITY_FILE, save_tool_result
 from engine.workspace import REPO_ROOT
@@ -57,8 +57,16 @@ def _build_handler(state: IdentityGuardState):
             # verbatim so each skill's existing "no active session -> show
             # login flow" prose keeps working unchanged; this tool only
             # replaces the comparison step, not connectivity handling.
+            # extract_kite_error_message unwraps the gateway's own
+            # {"source","as_of","data":{"error":[...]}} envelope down to
+            # just that message — see its docstring (issue #50 follow-up).
             return {
-                "content": [{"type": "text", "text": f"kite_gateway.get_profile error: {text}"}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"kite_gateway.get_profile error: {extract_kite_error_message(text)}",
+                    }
+                ],
                 "is_error": True,
             }
 
