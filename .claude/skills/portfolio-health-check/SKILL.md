@@ -69,9 +69,10 @@ regardless of which broker it came from.
    `data/holdings_<date>.json`).
 
    This writes `results/health_check_<date>.json` (total value/invested/P&L,
-   per-position weight, top concentration, top winners/losers by P&L%, full
-   position table). Read numbers from that file only — never restate a
-   holdings figure from memory or eyeball a percentage.
+   per-position weight, an asset-class breakdown — equity/ETF/G-Sec/other —
+   top concentration, top winners/losers by P&L%, full position table). Read
+   numbers from that file only — never restate a holdings figure from
+   memory or eyeball a percentage.
 
 4. **Offer a deeper dive, don't force one.** If any single position is above
    roughly 15% portfolio weight, or the user asks about a specific holding,
@@ -118,3 +119,9 @@ regardless of which broker it came from.
   has no sector field, and the instruments master's own sector coverage is
   partial (Nifty 500 constituents only, see `mcp/common/instruments.py`).
   Don't guess sectors; say what's covered and what isn't.
+- Asset-class classification (`asset_class_breakdown` in the health-check
+  output) is symbol-pattern based, not a real data source — ETF suffix
+  (`*BEES`), G-Sec suffixes (`*-GS`/`*-SG`), and a digit-leading-symbol
+  heuristic for other bonds that don't use those suffixes. It isn't
+  exhaustive; anything bucketed as "Other (unclassified)" should be called
+  out to the user as such, never silently narrated as equity.

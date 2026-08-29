@@ -3,12 +3,10 @@ mapping — the raw-input-saving half of skill adherence, complementing
 tests/test_engine_skill_tools.py's compute-and-save half.
 """
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
+from engine.time_ist import today_ist
 from engine.tool_capture import capture_path, parse_mcp_tool_name, save_tool_result
 
-_TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+_TODAY = today_ist()
 
 
 def test_parse_mcp_tool_name_splits_server_and_tool():

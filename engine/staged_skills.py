@@ -28,7 +28,7 @@ from typing import Any
 from engine import skills
 from engine.harnesses.base import Harness, ToolConfig
 from engine.sources_footer import DISCLAIMER, build_footer
-from engine.tool_capture import today_ist
+from engine.time_ist import today_ist
 from engine.workspace import augment_prompt_with_workspace
 
 

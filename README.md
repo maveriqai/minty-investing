@@ -67,7 +67,7 @@ git clone https://github.com/EternalTuring/minty-core.git minty
 cd minty
 uv sync
 uv run python ingest/build_instruments_master.py
-uv tool install --editable .
+uv run python scripts/install_entrypoint.py
 ```
 
 - `uv sync` installs every Python dependency (and Python itself, if
@@ -78,11 +78,13 @@ uv tool install --editable .
   no-auth sources). Without it, morning-digest's sector-materiality check
   silently degrades instead of failing loudly, so it's easy to miss if
   skipped.
-- `uv tool install --editable .` registers a global `minty` command, so
-  from here on you just type `minty` — the same way you'd type `claude`
-  — instead of `uv run python -m engine.interactive`. See "How the
-  `minty` command finds your data" below for what "install" actually
-  means here.
+- `uv run python scripts/install_entrypoint.py` registers a global `minty`
+  command (equivalent to `uv tool install --editable .`, which it runs for
+  you), so from here on you just type `minty` — the same way you'd type
+  `claude` — instead of `uv run python -m engine.interactive`. See "How
+  the `minty` command finds your data" below for what "install" actually
+  means here, and why this script — not the raw `uv tool install` command
+  — is the way to run it.
 
 ## How the `minty` command finds your data
 
@@ -102,9 +104,12 @@ repo clone it was last installed from. Two consequences worth knowing:
 - **Same machine, a second clone:** installing again repoints `minty` at
   the new clone instead of the old one (`uv tool install` uninstalls the
   old mapping and installs the new one) — verified live. The old clone's
-  files aren't touched or deleted, but `minty` stops seeing them. If you
-  ever clone Minty a second time on the same machine, know that
-  reinstalling from it silently switches which repo `minty` operates on.
+  files aren't touched or deleted, but `minty` stops seeing them.
+  `scripts/install_entrypoint.py` (the Quickstart's install step) is the
+  concrete mitigation: it detects when an install would repoint `minty`
+  away from a different repo and asks for confirmation first, instead of
+  silently switching. Scripting a fresh install non-interactively (CI, a
+  provisioning script)? Pass `--yes` to skip the prompt.
 
 ## Onboarding
 

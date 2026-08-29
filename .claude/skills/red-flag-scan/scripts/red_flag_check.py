@@ -52,6 +52,12 @@ RED_FLAG_KEYWORDS = [
     "insolvency",
     "winding up",
     "corporate insolvency resolution",
+    "cessation of director",
+    "resignation of director",
+    "cessation of key managerial personnel",
+    "resignation of key managerial personnel",
+    "change in directors",
+    "change in key managerial personnel",
 ]
 
 # yfinance's debt_to_equity is a percentage, not a raw ratio (verified 2026-07-08:

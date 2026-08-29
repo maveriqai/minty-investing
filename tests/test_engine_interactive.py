@@ -8,8 +8,6 @@ correct file with a worse one (issue #15).
 """
 
 import asyncio
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -24,8 +22,9 @@ from engine.interactive import (
     _suspend_input_echo,
 )
 from engine.sources_footer import FOOTER_MARKER
+from engine.time_ist import today_ist
 
-_TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+_TODAY = today_ist()
 
 
 @pytest.fixture(autouse=True)

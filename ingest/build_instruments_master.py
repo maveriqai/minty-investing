@@ -141,7 +141,9 @@ def build() -> None:
     print(f"wrote {DB_PATH}")
     print(
         f"instruments={len(universe)}  industry_coverage={covered} "
-        f"({covered / len(universe) * 100:.1f}%, Nifty 500 constituents only)"
+        f"({covered / len(universe) * 100:.1f}%, Nifty 500 constituents only "
+        "— industry labels are intentionally limited to Nifty 500 names, "
+        "not a coverage failure)"
     )
 
 

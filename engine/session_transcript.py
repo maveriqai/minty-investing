@@ -26,16 +26,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import now_ist
 
 
 def new_transcript_path(workspace_root: Path, *, now: datetime | None = None) -> Path:
     """The one file this REPL process appends every turn to — filename
     fixed at session start, not re-derived per turn, so a long-running
     session doesn't fragment across midnight IST."""
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     return workspace_root / "sessions" / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}.md"
 
 
@@ -58,7 +57,7 @@ def append_turn(
     session left open across IST midnight would otherwise mislabel later
     turns under the header's start-of-session date, with nothing in the
     file to catch it (found in review of #13)."""
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()

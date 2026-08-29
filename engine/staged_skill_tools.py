@@ -41,7 +41,7 @@ from engine.skill_tools import (
     _WORKSPACE_ROOT_PARAM,
     _resolve_workspace_root,
 )
-from engine.tool_capture import today_ist
+from engine.time_ist import today_ist
 from engine.workspace import WORKSPACE_ROOT
 
 STAGED_WORKFLOWS_SERVER_NAME = "staged_workflows"

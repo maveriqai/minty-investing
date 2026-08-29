@@ -11,9 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -30,6 +28,7 @@ from engine.kite_status import kite_connection_status_line
 from engine.memory_candidates import candidates_path, read_and_clear
 from engine.session_transcript import append_turn, new_transcript_path
 from engine.sources_footer import FOOTER_MARKER
+from engine.time_ist import now_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import (
     FIXED_WATCH_ROOTS,
@@ -41,7 +40,6 @@ from engine.workspace import (
 from engine.workspace import augment_prompt_with_workspace as _augment_with_workspace
 
 _EXIT_COMMANDS = {"exit", "quit", ":q"}
-_IST = ZoneInfo("Asia/Kolkata")
 # One shared Console — rich auto-detects a non-tty stdout (piped/redirected)
 # and degrades to plain text on its own, so `engine/run.py`'s single-shot
 # path (which never touches this module) and a piped `minty` invocation
@@ -393,7 +391,7 @@ async def _run_turn(
             print(f"[audit] tool error: {record['tool_name']} — {record['result_preview']}")
     for line in getattr(session, "last_over_budget", []):
         _emit(f"[budget] {line}", log_path=engine_log_path)
-    today = datetime.now(_IST).date().isoformat()
+    today = now_ist().date().isoformat()
     changed = changed_since_all(FIXED_WATCH_ROOTS, before)
     if workspace_root is not None:
         workspace_name = _workspace_name(workspace_root)
@@ -417,11 +415,11 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
     # Fixed once per REPL process, not re-derived per turn — see
     # engine/session_transcript.py's docstring for why (one file per
     # session, not one per turn). Both paths below share one `now` rather
-    # than each defaulting to its own `datetime.now(_IST)` call, so the
+    # than each defaulting to its own `now_ist()` call, so the
     # transcript and its sibling tool-call audit log (issue #47) share the
     # exact same session timestamp instead of two calls that could
     # theoretically land a second apart.
-    session_started_at = datetime.now(_IST)
+    session_started_at = now_ist()
     transcript_path = new_transcript_path(workspace_root, now=session_started_at)
     audit_log_path = new_audit_log_path(workspace_root, now=session_started_at)
     engine_log_path = new_engine_log_path(workspace_root, now=session_started_at)

@@ -7,13 +7,12 @@ ClaudeSession dispatches on type(x).__name__, not isinstance.
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from engine.harnesses.claude_agent_sdk import ClaudeSession
+from engine.time_ist import today_ist
 from engine.tool_budget import TurnBudgetTracker
 
-_TODAY = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+_TODAY = today_ist()
 
 
 @dataclass

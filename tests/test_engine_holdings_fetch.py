@@ -11,7 +11,7 @@ import asyncio
 import json
 
 from engine import holdings_fetch
-from engine.tool_capture import today_ist
+from engine.time_ist import today_ist
 from mcp import types
 
 _TODAY = today_ist()

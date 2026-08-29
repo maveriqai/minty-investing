@@ -4,11 +4,9 @@ deliberately separate from notes.md's compounding-memory path.
 """
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from engine.session_transcript import append_turn, new_transcript_path
-
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import IST as _IST
 
 
 def test_new_transcript_path_is_named_by_session_start_time(tmp_path):

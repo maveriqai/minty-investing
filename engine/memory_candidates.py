@@ -32,14 +32,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
+from engine.time_ist import now_ist
 from engine.workspace import WORKSPACE_ROOT_ARG_DESCRIPTION as _WORKSPACE_ROOT_DESCRIPTION
 from engine.workspace import resolve_workspace_root_arg as _resolve_workspace_root
-
-_IST = ZoneInfo("Asia/Kolkata")
 
 
 def candidates_path(workspace_root: Path) -> Path:
@@ -55,7 +53,7 @@ def append_candidate(path: Path, content: str, grounding: str, *, now: datetime 
     account of what backs the claim (a data file, "from this turn's
     discussion") — carried along so the session-start review can show the
     user *why* this was flagged, not just the bare claim."""
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:

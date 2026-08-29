@@ -39,9 +39,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import now_ist
 
 
 def new_audit_log_path(workspace_root: Path, *, now: datetime | None = None) -> Path:
@@ -51,7 +50,7 @@ def new_audit_log_path(workspace_root: Path, *, now: datetime | None = None) -> 
     call `new_transcript_path` for the same session should pass the same
     `now` to both, so the pair shares an exact timestamp rather than two
     independent `datetime.now()` calls landing a second apart."""
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     return workspace_root / "sessions" / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_tool_calls.jsonl"
 
 
@@ -63,7 +62,7 @@ def append_tool_calls(path: Path, records: list[dict[str, Any]], *, now: datetim
     file."""
     if not records:
         return
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:

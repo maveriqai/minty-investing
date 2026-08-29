@@ -4,11 +4,9 @@ audit log (issue #47). Modeled on tests/test_engine_session_transcript.py.
 
 import json
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
+from engine.time_ist import IST as _IST
 from engine.tool_audit import append_tool_calls, new_audit_log_path
-
-_IST = ZoneInfo("Asia/Kolkata")
 
 
 def test_new_audit_log_path_is_named_by_session_start_time(tmp_path):

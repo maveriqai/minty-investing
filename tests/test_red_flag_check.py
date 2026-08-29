@@ -109,6 +109,31 @@ def test_news_keyword_match():
     assert any(f["category"] == "news_keyword" for f in result["flags"])
 
 
+def test_announcement_keyword_match_director_cessation():
+    # Issue #45 — the Force Motors case: 11 senior management cessations
+    # disclosed in one filing day, missed entirely by the pre-fix keyword
+    # list (it reported 0 flags).
+    announcements = _envelope(
+        [{"desc": "Cessation of Director", "attchmntText": "Intimation of cessation of director..."}]
+    )
+    result = rfc.compute(symbol="STOCKA", announcements=announcements)
+    assert any(f["category"] == "announcement_keyword" for f in result["flags"])
+
+
+def test_announcement_keyword_match_kmp_resignation():
+    announcements = _envelope(
+        [{"desc": "Resignation of Key Managerial Personnel", "attchmntText": "The Company informs..."}]
+    )
+    result = rfc.compute(symbol="STOCKA", announcements=announcements)
+    assert any(f["category"] == "announcement_keyword" for f in result["flags"])
+
+
+def test_announcement_keyword_match_change_in_directors():
+    announcements = _envelope([{"desc": "Change in Directors/KMP", "attchmntText": "Board update..."}])
+    result = rfc.compute(symbol="STOCKA", announcements=announcements)
+    assert any(f["category"] == "announcement_keyword" for f in result["flags"])
+
+
 def test_fundamentals_high_leverage_and_liquidity_stress():
     # debt_to_equity is yfinance's percentage convention (verified against RELIANCE
     # reading 36.653 in prod, not a raw ratio) — 250 here means D/E ratio 2.5x.

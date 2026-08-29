@@ -25,13 +25,11 @@ way).
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from engine.time_ist import now_ist
 from engine.tool_capture import ACCOUNT_IDENTITY_FILE
-
-_IST = ZoneInfo("Asia/Kolkata")
 
 _NOT_CONNECTED_LINE = (
     'Zerodha not connected yet — ask something like "what are my holdings" '
@@ -100,7 +98,7 @@ def anchor_user_id() -> str | None:
 
 
 def _days_ago_phrase(as_of: date) -> str:
-    days = (datetime.now(_IST).date() - as_of).days
+    days = (now_ist().date() - as_of).days
     if days <= 0:
         return "today"
     if days == 1:

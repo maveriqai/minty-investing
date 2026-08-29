@@ -199,7 +199,7 @@ def test_compose_and_save_writes_footer_and_md_output(tmp_path, monkeypatch):
     (workspace_root / "data").mkdir(parents=True)
 
 
-    from engine.tool_capture import today_ist
+    from engine.time_ist import today_ist
 
     full_text = staged_skills.compose_and_save(
         "# Digest\nAll good.",

@@ -337,10 +337,9 @@ def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, mo
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
     async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
+        from engine.time_ist import today_ist
 
-        today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        today = today_ist()
         (workspace_root / "results" / f"red_flags_RELIANCE_{today}.json").write_text("{}")
         for chunk in ["ok"]:
             yield chunk
@@ -372,14 +371,13 @@ def _write_digest_skill(tmp_path, monkeypatch):
 
 
 def test_run_turn_saves_composed_text_to_a_skills_declared_md_output(tmp_path, monkeypatch, capsys):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+    from engine.time_ist import today_ist
 
     workspaces_dir = _isolate_watch_roots(tmp_path, monkeypatch)
     workspace_root = workspaces_dir / "daily"
     (workspace_root / "results").mkdir(parents=True)
     _write_digest_skill(tmp_path, monkeypatch)
-    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+    today = today_ist()
 
     session = _FakeSession(["ignored"], EngineResult(ok=True, text="ignored", error_kind=None, raw=None))
 

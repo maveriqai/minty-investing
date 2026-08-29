@@ -6,11 +6,9 @@ docs/next-phase-plan.md §5.1).
 
 import json
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from engine.kite_status import kite_connection_status_line
-
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import IST as _IST
 
 
 def _write_identity(repo_root, user_id="AB1234"):

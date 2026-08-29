@@ -4,11 +4,9 @@ tests/test_engine_tool_audit.py.
 """
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from engine.engine_log import append_engine_log, new_engine_log_path
-
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import IST as _IST
 
 
 def test_new_engine_log_path_is_named_by_session_start_time(tmp_path):

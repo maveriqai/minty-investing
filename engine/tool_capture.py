@@ -45,27 +45,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from engine.diagnostics import emit as _emit
+from engine.time_ist import today_ist
 from engine.workspace import REPO_ROOT
-
-_IST = ZoneInfo("Asia/Kolkata")
 
 # Install-wide, not workspace content — see this module's own docstring
 # for why get_profile is write-once here instead of living in CAPTURE_SPECS
 # below with everything else.
 ACCOUNT_IDENTITY_FILE = REPO_ROOT / "data" / "account_identity.json"
-
-
-def today_ist() -> str:
-    return datetime.now(_IST).date().isoformat()
-
-
-_today = today_ist
 
 
 def _symbol(args: dict[str, Any], key: str = "symbol") -> str:
@@ -138,7 +128,7 @@ def capture_path(tool_name: str, tool_input: dict[str, Any], workspace_root: Pat
     if filename_fn is None:
         return None
     try:
-        filename = filename_fn(tool_input, _today())
+        filename = filename_fn(tool_input, today_ist())
     except (KeyError, TypeError):
         return None
     return workspace_root / "data" / filename
@@ -227,4 +217,4 @@ def save_tool_result(
     return path
 
 
-__all__ = ["ACCOUNT_IDENTITY_FILE", "capture_path", "parse_mcp_tool_name", "save_tool_result", "today_ist"]
+__all__ = ["ACCOUNT_IDENTITY_FILE", "capture_path", "parse_mcp_tool_name", "save_tool_result"]

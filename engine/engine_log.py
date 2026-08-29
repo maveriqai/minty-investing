@@ -21,9 +21,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import now_ist
 
 
 def new_engine_log_path(workspace_root: Path, *, now: datetime | None = None) -> Path:
@@ -32,7 +31,7 @@ def new_engine_log_path(workspace_root: Path, *, now: datetime | None = None) ->
     session sit side by side and are trivially correlatable by name.
     Callers that also compute those two paths should pass the same `now`
     to all three, so they share one exact session timestamp."""
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     return workspace_root / "sessions" / f"{now.strftime('%Y-%m-%dT%H-%M-%S')}_engine.log"
 
 
@@ -42,7 +41,7 @@ def append_engine_log(path: Path, lines: list[str], *, now: datetime | None = No
     empty — a turn with nothing to log shouldn't create an empty file."""
     if not lines:
         return
-    now = now or datetime.now(_IST)
+    now = now or now_ist()
     timestamp = now.strftime("%Y-%m-%d %H:%M IST")
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:

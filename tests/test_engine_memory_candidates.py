@@ -5,7 +5,6 @@ confirming it into notes.md.
 
 import asyncio
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from engine.memory_candidates import (
     append_candidate,
@@ -13,8 +12,7 @@ from engine.memory_candidates import (
     candidates_path,
     read_and_clear,
 )
-
-_IST = ZoneInfo("Asia/Kolkata")
+from engine.time_ist import IST as _IST
 
 
 def _run(coro):

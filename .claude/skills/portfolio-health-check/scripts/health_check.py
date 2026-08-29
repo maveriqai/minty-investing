@@ -27,6 +27,25 @@ def _unwrap_envelope(payload: object) -> object:
     return payload
 
 
+def _classify_asset_class(symbol: str) -> str:
+    """Symbol-pattern classification only (issue #31) — no external data
+    source needed, unlike sector (which is genuinely blocked, see this
+    skill's own SKILL.md). ETFs use the `*BEES` suffix convention
+    (GOLDBEES, NIFTYBEES, ...); most G-Secs use `*-GS`/`*-SG` suffixes
+    (710GS2029-GS, 754KA41-SG). Not every G-Sec has a distinguishing
+    suffix, though — a real held bond, 759KA38, has none. Real NSE equity
+    trading symbols never start with a digit, so a digit-leading symbol is
+    an honest "flag it, don't guess" signal rather than silently folding
+    an unrecognized bond shape into Equity."""
+    if symbol.endswith("BEES"):
+        return "ETF"
+    if symbol.endswith(("-GS", "-SG")):
+        return "G-Sec"
+    if symbol[:1].isdigit():
+        return "Other (unclassified — possible bond/G-Sec)"
+    return "Equity"
+
+
 def compute(holdings: list[dict]) -> dict:
     rows = []
     for h in holdings:
@@ -41,6 +60,7 @@ def compute(holdings: list[dict]) -> dict:
             {
                 "symbol": h["tradingsymbol"],
                 "exchange": h["exchange"],
+                "asset_class": _classify_asset_class(h["tradingsymbol"]),
                 "quantity": qty,
                 "avg_price": round(avg, 2),
                 "last_price": round(last, 2),
@@ -59,6 +79,15 @@ def compute(holdings: list[dict]) -> dict:
     for r in rows:
         r["weight_pct"] = round(r["value"] / total_value * 100, 2) if total_value else None
 
+    asset_class_breakdown: dict[str, dict] = {}
+    for r in rows:
+        bucket = asset_class_breakdown.setdefault(r["asset_class"], {"value": 0.0, "position_count": 0})
+        bucket["value"] += r["value"]
+        bucket["position_count"] += 1
+    for bucket in asset_class_breakdown.values():
+        bucket["value"] = round(bucket["value"], 2)
+        bucket["weight_pct"] = round(bucket["value"] / total_value * 100, 2) if total_value else None
+
     by_value = sorted(rows, key=lambda r: r["value"], reverse=True)
     by_pnl_pct = [r for r in rows if r["pnl_pct"] is not None]
     winners = sorted(by_pnl_pct, key=lambda r: r["pnl_pct"], reverse=True)[:10]
@@ -71,6 +100,7 @@ def compute(holdings: list[dict]) -> dict:
         "total_value": round(total_value, 2),
         "total_pnl": round(total_pnl, 2),
         "total_pnl_pct": round(total_pnl_pct, 2) if total_pnl_pct is not None else None,
+        "asset_class_breakdown": asset_class_breakdown,
         "top_concentration": top_concentration,
         "top_winners_by_pnl_pct": winners,
         "top_losers_by_pnl_pct": losers,
