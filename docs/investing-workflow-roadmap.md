@@ -155,6 +155,17 @@ is a future decision, not implied by its presence in this list:
 - A pre-event prep skill for a name already on a thesis or held — "what
   to watch for" before results/an AGM/a regulatory decision lands —
   upstream's `earnings-preview`.
+- Macro/market-level research with no symbol and no single sector at all
+  — "what's driving FII outflows this month," "is a rate cut coming."
+  Distinct from the cross-sector *stock-screening* gap (issue #57):
+  `morning-digest` already touches FII/DII flow and index moves as a
+  daily snapshot, but nothing persists a compounding, narrative research
+  note about macro questions the way `theses/<SYMBOL>.md` or (once built)
+  `research/<industry-slug>.md` do for their own subjects. Lighter-weight
+  than #57 for now, deliberately not filed as an issue yet — there's no
+  producing skill or artifact to point at, only the gap itself. Surfaced
+  2026-08-30 alongside issues #56/#57; revisit once something actually
+  generates macro-research content worth compounding.
 
 Explicitly not proposing a heavy `initiating-coverage`-style
 valuation-derivation skill here — that conflicts with the project's own
