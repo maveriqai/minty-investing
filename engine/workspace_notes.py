@@ -20,6 +20,18 @@ skill whose content is a living, per-symbol document, not workspace-wide
 notes, so each symbol gets its own file rather than sharing one growing
 notes.md). Still a small, fixed set the model chooses *from*, not an
 arbitrary path it invents.
+
+Extended (docs/research-discovery-plan.md §6) with four more patterns for
+the research-discovery skills: `research/sectors/<slug>.md`,
+`research/stocks/<SYMBOL>.md`, `research/themes/<slug>.md` — one file per
+subject, keyed the same way `theses/<SYMBOL>.md` already is, per
+docs/research-notes-design.md §2.1/§2.2 — and
+`data/research_plan_<slug>_<date>.json`, the plan-file handoff between
+`research-discovery` (writes it) and `research-discovery-gather` (reads
+it via its `dynamic: true` stage, see engine/staged_skills.py) — the
+pragmatic native substitute for a real pause/resume primitive, decided
+after confirming (engine/staged_skill_tools.py) that a staged run can
+neither pause for the user nor receive per-invocation content.
 """
 
 from __future__ import annotations
@@ -34,11 +46,21 @@ from engine.workspace import resolve_workspace_root_arg as _resolve_workspace_ro
 
 _TARGET_DESCRIPTION = (
     "Which file to update — 'notes.md' (the default; the workspace's general "
-    "notebook) or 'theses/<SYMBOL>.md' (a specific stock's thesis file, "
-    "SYMBOL uppercase, e.g. 'theses/RELIANCE.md'). No other path is accepted."
+    "notebook), 'theses/<SYMBOL>.md' (a specific stock's thesis file, SYMBOL "
+    "uppercase, e.g. 'theses/RELIANCE.md'), 'research/sectors/<slug>.md', "
+    "'research/stocks/<SYMBOL>.md', or 'research/themes/<slug>.md' (a "
+    "research-discovery finding, keyed by which bucket it belongs in — slug "
+    "lowercase-hyphenated, e.g. 'research/sectors/automobile-and-auto-"
+    "components.md'), or 'data/research_plan_<slug>_<date>.json' "
+    "(research-discovery's own handoff file to research-discovery-gather, "
+    "date as YYYY-MM-DD). No other path is accepted."
 )
 
 _THESIS_TARGET_RE = re.compile(r"^theses/[A-Z0-9&\-]+\.md$")
+_SECTOR_RESEARCH_RE = re.compile(r"^research/sectors/[a-z0-9]+(-[a-z0-9]+)*\.md$")
+_STOCK_RESEARCH_RE = re.compile(r"^research/stocks/[A-Z0-9&\-]+\.md$")
+_THEME_RESEARCH_RE = re.compile(r"^research/themes/[a-z0-9]+(-[a-z0-9]+)*\.md$")
+_RESEARCH_PLAN_RE = re.compile(r"^data/research_plan_[a-z0-9]+(-[a-z0-9]+)*_\d{4}-\d{2}-\d{2}\.json$")
 
 _INPUT_SCHEMA = {
     "type": "object",
@@ -61,12 +83,14 @@ _INPUT_SCHEMA = {
 
 
 def _resolve_target(raw: str) -> str | None:
-    """None if `raw` isn't in the allow-listed set — 'notes.md' or
-    'theses/<SYMBOL>.md'."""
+    """None if `raw` isn't in the allow-listed set — 'notes.md',
+    'theses/<SYMBOL>.md', one of the three 'research/<bucket>/<key>.md'
+    forms, or 'data/research_plan_<slug>_<date>.json'."""
     if raw == "notes.md":
         return raw
-    if _THESIS_TARGET_RE.match(raw):
-        return raw
+    for pattern in (_THESIS_TARGET_RE, _SECTOR_RESEARCH_RE, _STOCK_RESEARCH_RE, _THEME_RESEARCH_RE, _RESEARCH_PLAN_RE):
+        if pattern.match(raw):
+            return raw
     return None
 
 
@@ -89,7 +113,9 @@ async def _handler(args: dict[str, Any]) -> dict[str, Any]:
                 {
                     "type": "text",
                     "text": (
-                        f"'target' must be 'notes.md' or 'theses/<SYMBOL>.md' — got {args.get('target')!r}"
+                        "'target' must be 'notes.md', 'theses/<SYMBOL>.md', "
+                        "'research/sectors|stocks|themes/<key>.md', or "
+                        f"'data/research_plan_<slug>_<date>.json' — got {args.get('target')!r}"
                     ),
                 }
             ],
@@ -105,12 +131,15 @@ def build_workspace_notes_tool() -> SdkMcpTool[Any]:
     return tool(
         "update_workspace_notes",
         "Save the workspace's persistent notebook — the only correct way to record "
-        "an open thread, key finding, or reusable framework for this workspace, or "
-        "to update a specific stock's thesis file. Always writes to workspace_root "
-        "plus an allow-listed target (notes.md by default, or theses/<SYMBOL>.md), "
-        "never an invented filename or location — read the current content first "
-        "with Read (if any), merge your update into it, then call this with the "
-        "full merged content.",
+        "an open thread, key finding, or reusable framework for this workspace, to "
+        "update a specific stock's thesis file, to file a research-discovery finding "
+        "into its sector/stock/theme bucket, or to hand off a research-discovery plan "
+        "to research-discovery-gather. Always writes to workspace_root plus an "
+        "allow-listed target (notes.md by default, theses/<SYMBOL>.md, "
+        "research/sectors|stocks|themes/<key>.md, or "
+        "data/research_plan_<slug>_<date>.json), never an invented filename or "
+        "location — read the current content first with Read (if any), merge your "
+        "update into it, then call this with the full merged content.",
         _INPUT_SCHEMA,
     )(_handler)
 

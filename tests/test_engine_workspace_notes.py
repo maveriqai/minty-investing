@@ -60,10 +60,25 @@ def test_resolve_target_defaults_and_thesis_files():
     assert _resolve_target("theses/M&M.md") == "theses/M&M.md"
 
 
+def test_resolve_target_accepts_research_buckets_and_plan_file():
+    assert _resolve_target("research/sectors/automobile-and-auto-components.md") == (
+        "research/sectors/automobile-and-auto-components.md"
+    )
+    assert _resolve_target("research/stocks/RELIANCE.md") == "research/stocks/RELIANCE.md"
+    assert _resolve_target("research/themes/pli-semiconductors.md") == "research/themes/pli-semiconductors.md"
+    assert _resolve_target("data/research_plan_pli-semiconductors_2026-08-30.json") == (
+        "data/research_plan_pli-semiconductors_2026-08-30.json"
+    )
+
+
 def test_resolve_target_rejects_anything_else():
     assert _resolve_target("../escape.md") is None
     assert _resolve_target("data/holdings.json") is None
     assert _resolve_target("theses/reliance.md") is None  # must be uppercase
+    assert _resolve_target("research/sectors/Automobile.md") is None  # must be lowercase slug
+    assert _resolve_target("research/stocks/reliance.md") is None  # must be uppercase
+    assert _resolve_target("research/other/pli.md") is None  # not an allow-listed bucket
+    assert _resolve_target("data/research_plan_pli_30-08-2026.json") is None  # date must be YYYY-MM-DD
 
 
 def test_update_workspace_notes_tool_writes_to_notes_md_by_default(tmp_path, monkeypatch):
@@ -108,6 +123,48 @@ def test_update_workspace_notes_tool_writes_to_a_thesis_file(tmp_path, monkeypat
     assert result.get("is_error") is not True
     assert (workspace / "theses" / "RELIANCE.md").read_text() == "# RELIANCE thesis"
     assert not (workspace / "notes.md").exists()
+
+
+def test_update_workspace_notes_tool_writes_to_a_research_bucket_file(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    update_tool = build_workspace_notes_tool()
+    result = _run(
+        update_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "target": "research/themes/pli-semiconductors.md",
+                "content": "# PLI semiconductors",
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    assert (workspace / "research" / "themes" / "pli-semiconductors.md").read_text() == "# PLI semiconductors"
+
+
+def test_update_workspace_notes_tool_writes_the_research_plan_handoff_file(tmp_path, monkeypatch):
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    update_tool = build_workspace_notes_tool()
+    plan_content = '{"request": "PLI semiconductors", "already_known": [], "angles": []}'
+    result = _run(
+        update_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "target": "data/research_plan_pli-semiconductors_2026-08-30.json",
+                "content": plan_content,
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    plan_path = workspace / "data" / "research_plan_pli-semiconductors_2026-08-30.json"
+    assert plan_path.read_text() == plan_content
 
 
 def test_update_workspace_notes_tool_rejects_an_invalid_target(tmp_path, monkeypatch):

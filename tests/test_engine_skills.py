@@ -301,5 +301,75 @@ def test_load_stages_accepts_a_critical_stage_with_produces(tmp_path, monkeypatc
     )
 
     stages = load_stages("critical-with-produces")
-
     assert stages[0]["critical"] is True
+
+
+def test_load_stages_rejects_a_dynamic_stage_with_no_needs(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "dynamic-no-needs",
+        "name: dynamic-no-needs\ndescription: test\n"
+        "stages:\n"
+        "  - id: gather\n"
+        "    dynamic: true\n"
+        "    max_instances: 6\n"
+        '    produces: ["{workspace}/data/finding_*.json"]\n',
+    )
+
+    with pytest.raises(ValueError, match="needs"):
+        load_stages("dynamic-no-needs")
+
+
+def test_load_stages_rejects_a_dynamic_stage_with_no_max_instances(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "dynamic-no-cap",
+        "name: dynamic-no-cap\ndescription: test\n"
+        "stages:\n"
+        "  - id: gather\n"
+        "    dynamic: true\n"
+        '    needs: ["{workspace}/data/plan_*.json"]\n'
+        '    produces: ["{workspace}/data/finding_*.json"]\n',
+    )
+
+    with pytest.raises(ValueError, match="max_instances"):
+        load_stages("dynamic-no-cap")
+
+
+def test_load_stages_rejects_a_dynamic_stage_with_a_non_positive_max_instances(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "dynamic-zero-cap",
+        "name: dynamic-zero-cap\ndescription: test\n"
+        "stages:\n"
+        "  - id: gather\n"
+        "    dynamic: true\n"
+        '    needs: ["{workspace}/data/plan_*.json"]\n'
+        "    max_instances: 0\n"
+        '    produces: ["{workspace}/data/finding_*.json"]\n',
+    )
+
+    with pytest.raises(ValueError, match="max_instances"):
+        load_stages("dynamic-zero-cap")
+
+
+def test_load_stages_accepts_a_well_formed_dynamic_stage(tmp_path, monkeypatch):
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", tmp_path)
+    _write_skill(
+        tmp_path,
+        "dynamic-ok",
+        "name: dynamic-ok\ndescription: test\n"
+        "stages:\n"
+        "  - id: gather\n"
+        "    dynamic: true\n"
+        '    needs: ["{workspace}/data/plan_*.json"]\n'
+        "    max_instances: 6\n"
+        '    produces: ["{workspace}/data/finding_*.json"]\n',
+    )
+
+    stages = load_stages("dynamic-ok")
+    assert stages[0]["dynamic"] is True
+    assert stages[0]["max_instances"] == 6

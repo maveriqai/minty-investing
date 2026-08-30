@@ -733,7 +733,11 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
     # out server-side (engine/skill_tools.py), so Bash was never load-bearing
     # for the designed skill flow; its one real use bypassed nse_fetch.py's
     # governed path entirely, with no scoping ever actually enforced.
-    assert tools.builtin_tools == ["Read", "Write"]
+    # Glob added for research-discovery's workspace-check step
+    # (docs/research-discovery-plan.md §2) — read-only, no write/execute
+    # surface, so it doesn't touch the order-execution/Bash-removal
+    # guardrail concerns.
+    assert tools.builtin_tools == ["Read", "Write", "Glob"]
     # Default 1MB SDK buffer crashed live on a real Layer 2 tool response
     # while porting red-flag-scan — see engine/config.py's _MAX_BUFFER_SIZE.
     assert tools.max_buffer_size == 10_000_000
@@ -747,6 +751,8 @@ def test_build_tool_config_scopes_skills_to_minty_only():
         "morning-digest",
         "portfolio-health-check",
         "red-flag-scan",
+        "research-discovery",
+        "research-discovery-gather",
         "screen-indian-stocks",
         "thesis-tracker",
     ]

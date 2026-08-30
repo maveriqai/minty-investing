@@ -73,6 +73,20 @@ def build_tool_config(
         # what Minty actually needs; no Edit/NotebookEdit, which nothing here
         # has a use for yet.
         #
+        # Glob added while building research-discovery
+        # (docs/research-discovery-plan.md §2's workspace-check step):
+        # `ClaudeAgentOptions.tools` is a base allow-list, not just a
+        # disallow-list on top of Claude Code's defaults (confirmed from
+        # claude_agent_sdk's own types.py) — with only Read/Write allowed, no
+        # session could ever list a directory (Read errors on one, same as
+        # the outer Claude Code session's own Read tool) or resolve a
+        # wildcard pattern. This was a latent gap already, not new:
+        # morning-digest's own step 7 ("Glob the workspace's data/ for the
+        # newest existing holdings_*.json") could never have actually
+        # resolved without this — read-only, no write/execute surface, so it
+        # doesn't touch the order-execution or Bash-removal (issue #25)
+        # guardrail concerns at all.
+        #
         # No Bash (issue #25, fixed 2026-08-27): every deterministic-script
         # tool already shells out server-side via engine/skill_tools.py's own
         # subprocess call, not the model's own Bash — so Bash was never
@@ -87,6 +101,6 @@ def build_tool_config(
         # `india_filings.get_filing_document` is the governed replacement.
         # Same "structural, not policy" bar CLAUDE.md sets for order
         # execution — removing the tool closes the whole class at once.
-        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write"],
+        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write", "Glob"],
         max_buffer_size=max_buffer_size if max_buffer_size is not None else _MAX_BUFFER_SIZE,
     )

@@ -22,6 +22,7 @@ own "generic tool factory, not per-skill engine code" pattern.
 from __future__ import annotations
 
 import dataclasses
+import json
 import sys
 import time
 from collections.abc import Callable
@@ -100,6 +101,149 @@ def _build_stage_prompt(
         for path in missing:
             parts.append(f"- MISSING (that stage did not produce it — say so explicitly, don't guess): {path}")
     return "\n".join(parts)
+
+
+def _expand_dynamic_stage(
+    stage: dict[str, Any], *, workspace_name: str, date: str
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Turns one `dynamic: true` stage template (docs/research-discovery-
+    plan.md §4) into concrete per-angle stage dicts, each runnable through
+    the ordinary `_run_one_stage` path unchanged.
+
+    The stage's own `needs` names the plan file a *separate, earlier* turn
+    wrote (research-discovery's own `update_workspace_notes` call, before
+    ever invoking this staged run) — not something a prior stage in *this*
+    run produced. That's why this reads it with a plain existence check,
+    not `_exists(..., min_mtime=...)`: the run-start-relative freshness
+    gate exists to tell "this run's own stage wrote it" from "a same-named
+    file left over from hours earlier" (issue #52), a question that
+    doesn't apply to a file that's *supposed* to predate this run's start
+    by design. The plan pattern's own `{date}` placeholder is what bounds
+    it to today, the same way every other same-day file on this workspace
+    is bounded.
+
+    Returns (instances, present, missing) — `present`/`missing` are the
+    resolved `needs` paths, handed back so the caller can pass the same
+    file-presence context into every expanded instance's own prompt (they
+    all depend on the same plan file). `instances` is empty if the plan
+    file is missing, unreadable, or has no `angles` — the caller treats
+    that as "nothing to expand," not an error.
+    """
+    needed = [skills.resolve_pattern(p, workspace_name=workspace_name, date=date) for p in stage.get("needs", [])]
+    present = [p for p in needed if _exists(p)]
+    missing = [p for p in needed if not _exists(p)]
+    if not present:
+        return [], present, missing
+
+    plan_paths = sorted(
+        (path for pattern in present for path in skills.REPO_ROOT.glob(pattern)),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if not plan_paths:
+        return [], present, missing
+    plan_path = plan_paths[-1]  # newest, if more than one same-day plan file matches
+    try:
+        plan = json.loads(plan_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[stage] {stage['id']}: dynamic — plan file {plan_path} unreadable: {exc}", file=sys.stderr)
+        return [], present, missing
+
+    angles = plan.get("angles") or []
+    max_instances = stage["max_instances"]  # validated at load time (engine/skills.py)
+    if len(angles) > max_instances:
+        dropped = [a.get("id", "?") for a in angles[max_instances:]]
+        print(f"[stage] {stage['id']}: dynamic — {len(angles)} angles, capped at {max_instances}, dropped {dropped}")
+    angles = angles[:max_instances]
+
+    produces_templates = stage.get("produces") or []
+    instances: list[dict[str, Any]] = []
+    for i, angle in enumerate(angles):
+        angle_id = str(angle.get("id") or f"angle{i + 1}")
+        question = angle.get("question", "")
+        tool_hint = angle.get("tool_hint", "")
+        instructions = f"Research angle {angle_id!r}: {question}"
+        if tool_hint:
+            instructions += f"\nSuggested tool(s): {tool_hint}"
+        produces = [p.replace("*", angle_id, 1) for p in produces_templates]
+        instructions += (
+            "\n\nWrite your finding for this angle only, as JSON, to exactly "
+            f"{produces[0] if produces else '(no produces path declared)'} once you're done."
+        )
+        instances.append(
+            {
+                "id": f"{stage['id']}_{angle_id}",
+                "instructions": instructions,
+                "needs": stage.get("needs", []),
+                "produces": produces,
+            }
+        )
+    return instances, present, missing
+
+
+async def _run_one_stage(
+    harness: Harness,
+    stage_tools: ToolConfig,
+    skill_body: str,
+    stage: dict[str, Any],
+    *,
+    present: list[str],
+    missing: list[str],
+    workspace_root: Path,
+    date: str,
+    min_mtime: float,
+) -> tuple[str, bool, list[tuple[str, str, Path]], float, float, int]:
+    """Runs exactly one stage's own fresh session — the shared execution
+    path for both an ordinary frontmatter-declared stage and one instance
+    expanded from a `dynamic: true` stage template (`_expand_dynamic_stage`
+    above) — no separate code for "how a stage actually runs" depending on
+    where it came from. Returns (text, ok, captures, duration_ms, cost_usd,
+    tokens); `ok` is whether every declared `produces` file landed (see
+    `run_staged_skill`'s own docstring on fail-open, `critical`, and the
+    `min_mtime` freshness gate — unchanged here, this is a pure extraction).
+    """
+    prompt = augment_prompt_with_workspace(
+        _build_stage_prompt(skill_body, stage, present=present, missing=missing), workspace_root
+    )
+    captures: list[tuple[str, str, Path]] = []
+    async with harness.open_session(stage_tools) as session:
+        text = ""
+        try:
+            async for chunk in session.send(prompt, workspace_root=workspace_root):
+                text += chunk
+        except Exception as exc:  # noqa: BLE001 - a stage failing must not crash the whole run
+            print(f"[stage] {stage['id']}: raised {exc!r}", file=sys.stderr)
+            text = f"Stage {stage['id']} failed to complete: {exc}"
+
+        captures.extend(session.last_captures)
+        for line in session.last_over_budget:
+            print(f"[stage {stage['id']}] [budget] {line}")
+        try:
+            # getattr, not a raw attribute access — matches
+            # engine/interactive.py's own defensive read of this same
+            # attribute, so a test double standing in for a real session
+            # doesn't need to carry it.
+            append_tool_calls(new_audit_log_path(workspace_root), getattr(session, "last_tool_calls", []))
+        except OSError as exc:
+            # Audit-only side effect — must never take the staged run down
+            # with it (same convention as ClaudeAgentSDKHarness.run()).
+            print(f"[audit] couldn't write stage {stage['id']}'s tool-call log: {exc}", file=sys.stderr)
+
+        expected = [
+            skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
+            for p in stage.get("produces", [])
+        ]
+        ok = all(_exists(p, min_mtime=min_mtime) for p in expected) if expected else True
+
+        # EngineResult.raw is the harness-native ResultMessage, which
+        # already carries duration_ms/total_cost_usd/usage per SDK session
+        # — a read, not new instrumentation (§5/§9, decided 2026-08-07).
+        raw = getattr(session.last_result, "raw", None)
+        duration_ms = getattr(raw, "duration_ms", 0) or 0
+        cost_usd = getattr(raw, "total_cost_usd", 0.0) or 0.0
+        usage = getattr(raw, "usage", None) or {}
+        tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+
+    return text, ok, captures, duration_ms, cost_usd, tokens
 
 
 async def run_staged_skill(
@@ -191,71 +335,77 @@ async def run_staged_skill(
     # unnamed workspace, no naming decision left anywhere).
     for stage in stages:
         stages_run += 1
+
+        if stage.get("dynamic"):
+            # Expand the template into concrete per-angle instances and run
+            # each through the same _run_one_stage path — never critical
+            # itself (only a fixed downstream stage like `synthesize` is),
+            # so one angle's instance failing never aborts the others or
+            # the rest of the run; see docs/research-discovery-plan.md §3's
+            # "fail-open applies per-instance."
+            instances, present, missing = _expand_dynamic_stage(
+                stage, workspace_name=_workspace_name(workspace_root), date=date
+            )
+            if not instances:
+                reason = "plan file(s) not found" if missing and not present else "plan file has no angles"
+                print(f"[stage] {stage['id']}: dynamic — nothing to expand ({reason})")
+                continue
+            ok_count = 0
+            for instance in instances:
+                text, ok, captures, duration_ms, cost_usd, tokens = await _run_one_stage(
+                    harness,
+                    stage_tools,
+                    skill_body,
+                    instance,
+                    present=present,
+                    missing=missing,
+                    workspace_root=workspace_root,
+                    date=date,
+                    min_mtime=min_mtime,
+                )
+                all_captures.extend(captures)
+                final_text = text
+                total_duration_ms += duration_ms
+                total_cost_usd += cost_usd
+                total_tokens += tokens
+                ok_count += int(ok)
+                print(
+                    f"[stage] {instance['id']}: {'ok' if ok else 'expected output missing'} "
+                    f"({duration_ms / 1000:.1f}s, ${cost_usd:.4f}, {tokens} tok)"
+                )
+            print(f"[stage] {stage['id']}: dynamic — {ok_count}/{len(instances)} instance(s) produced output")
+            continue
+
         needed = [
             skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
             for p in stage.get("needs", [])
         ]
-        present = [p for p in needed if _exists(p, min_mtime=min_mtime)]
-        missing = [p for p in needed if not _exists(p, min_mtime=min_mtime)]
         # Augmented the same way engine/interactive.py's _run_turn augments
         # every other session's prompt — without this, a stage nudged by
         # the always-on update_workspace_notes/stage_memory_candidate
         # system-prompt instructions has no reliable workspace_root to cite
         # (found in review of issue #14).
-        prompt = augment_prompt_with_workspace(
-            _build_stage_prompt(skill_body, stage, present=present, missing=missing), workspace_root
+        present = [p for p in needed if _exists(p, min_mtime=min_mtime)]
+        missing = [p for p in needed if not _exists(p, min_mtime=min_mtime)]
+
+        text, ok, captures, duration_ms, cost_usd, tokens = await _run_one_stage(
+            harness,
+            stage_tools,
+            skill_body,
+            stage,
+            present=present,
+            missing=missing,
+            workspace_root=workspace_root,
+            date=date,
+            min_mtime=min_mtime,
         )
-
-        duration_ms = 0
-        cost_usd = 0.0
-        tokens = 0
-        async with harness.open_session(stage_tools) as session:
-            text = ""
-            try:
-                async for chunk in session.send(prompt, workspace_root=workspace_root):
-                    text += chunk
-            except Exception as exc:  # noqa: BLE001 - a stage failing must not crash the whole run
-                print(f"[stage] {stage['id']}: raised {exc!r}", file=sys.stderr)
-                text = f"Stage {stage['id']} failed to complete: {exc}"
-
-            all_captures.extend(session.last_captures)
-            final_text = text  # ordinarily overwritten by later stages — see the critical-abort return below
-            for line in session.last_over_budget:
-                print(f"[stage {stage['id']}] [budget] {line}")
-            try:
-                # getattr, not a raw attribute access — matches
-                # engine/interactive.py's own defensive read of this same
-                # attribute, so a test double standing in for a real
-                # session doesn't need to carry it.
-                append_tool_calls(new_audit_log_path(workspace_root), getattr(session, "last_tool_calls", []))
-            except OSError as exc:
-                # Audit-only side effect — must never take the staged run
-                # down with it (same convention as ClaudeAgentSDKHarness.run()).
-                print(f"[audit] couldn't write stage {stage['id']}'s tool-call log: {exc}", file=sys.stderr)
-
-            expected = [
-                skills.resolve_pattern(p, workspace_name=_workspace_name(workspace_root), date=date)
-                for p in stage.get("produces", [])
-            ]
-            stage_status[stage["id"]] = (
-                all(_exists(p, min_mtime=min_mtime) for p in expected) if expected else True
-            )
-
-            # EngineResult.raw is the harness-native ResultMessage, which
-            # already carries duration_ms/total_cost_usd/usage per SDK
-            # session — a read, not new instrumentation (§5/§9, decided
-            # 2026-08-07).
-            raw = getattr(session.last_result, "raw", None)
-            duration_ms = getattr(raw, "duration_ms", 0) or 0
-            cost_usd = getattr(raw, "total_cost_usd", 0.0) or 0.0
-            usage = getattr(raw, "usage", None) or {}
-            tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
-
+        all_captures.extend(captures)
+        final_text = text  # ordinarily overwritten by later stages — see the critical-abort return below
         total_duration_ms += duration_ms
         total_cost_usd += cost_usd
         total_tokens += tokens
+        stage_status[stage["id"]] = ok
 
-        ok = stage_status[stage["id"]]
         if not ok and stage.get("critical"):
             remaining = len(stages) - stages_run
             print(

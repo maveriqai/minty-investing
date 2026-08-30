@@ -118,6 +118,16 @@ def _validate_stage_order(skill_name: str, stages: list[dict]) -> None:
       `produces` glob check, so a `critical` stage with nothing declared
       there would silently never abort, defeating the point of marking it
       critical in the first place.
+    - a stage declares `dynamic: true` with no `needs` or no positive-int
+      `max_instances` (docs/research-discovery-plan.md §4) — `dynamic`
+      means "expand this one template into N stage instances at runtime by
+      reading a plan file `needs` points at," so without a `needs` entry
+      there's nothing to read, and without a `max_instances` cap the
+      orchestrator has no enforced ceiling on how many instances a plan
+      file can trigger (the mechanical check that stands in for "was this
+      angle actually worth pursuing," which isn't something a hook can
+      judge — see the same asymmetry docs/research-discovery-architecture.md
+      §7 already applies to the web-search tripwire).
     """
     all_produces: set[str] = set()
     for stage in stages:
@@ -130,6 +140,18 @@ def _validate_stage_order(skill_name: str, stages: list[dict]) -> None:
                 f"produces — a critical stage needs produces so run_staged_skill has "
                 f"something to check before deciding whether to abort"
             )
+        if stage.get("dynamic"):
+            if not stage.get("needs"):
+                raise ValueError(
+                    f"{skill_name}: stage {stage.get('id')!r} declares dynamic: true but no "
+                    f"needs — a dynamic stage needs a plan-file pattern to expand"
+                )
+            max_instances = stage.get("max_instances")
+            if not isinstance(max_instances, int) or isinstance(max_instances, bool) or max_instances < 1:
+                raise ValueError(
+                    f"{skill_name}: stage {stage.get('id')!r} declares dynamic: true but "
+                    f"max_instances is {max_instances!r} — must be a positive integer"
+                )
         for need in stage.get("needs") or []:
             if need in all_produces and need not in produced_so_far:
                 raise ValueError(
@@ -150,7 +172,12 @@ def load_stages(skill_name: str) -> list[dict]:
     Shape per entry: {"id": str, "instructions": str, "needs": [str, ...],
     "produces": [str, ...]}. `needs`/`produces` reuse `expected_outputs`'s
     own glob-pattern-with-placeholders shape (see `resolve_pattern`); both
-    are optional per stage.
+    are optional per stage — except on a `dynamic: true` stage (docs/
+    research-discovery-plan.md §4), where `needs` is required (the plan
+    file to expand) and a positive-int `max_instances` caps how many
+    concrete stage instances `run_staged_skill` (engine/staged_skills.py)
+    generates from it at runtime, instead of running this one entry as a
+    single stage the way every other entry runs.
 
     Validates load-time stage ordering every call (see
     `_validate_stage_order`) — cheap (one small YAML re-parse), and keeps

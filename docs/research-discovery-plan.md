@@ -21,11 +21,33 @@ Three pieces landing together, not sequentially:
 - **A.** Two skill directories, not one — `research-discovery` (plain,
   natively invoked) and `research-discovery-gather` (staged-only). Split
   forced by a real mechanical finding, not a stylistic choice — see §1.
+  **Built** — `.claude/skills/research-discovery/SKILL.md` and
+  `.claude/skills/research-discovery-gather/SKILL.md`.
 - **B.** A new Layer 2 MCP server, `mcp/research_web_search/`, gated and
-  citation-required (architecture doc §7).
+  citation-required (architecture doc §7). **Not built** — still blocked
+  on §5's auth-path dependency, per §8's own "not buildable at all, not
+  just unpolished."
 - **C.** New engine code: dynamic stage generation in `staged_skills.py`
   — the single biggest genuinely new primitive this plan requires, and
-  the part with the most real engineering risk.
+  the part with the most real engineering risk. **Built and tested** —
+  `engine/skills.py` (load-time validation of `dynamic`/`max_instances`),
+  `engine/staged_skills.py` (`_expand_dynamic_stage`, and a `_run_one_stage`
+  extraction so a dynamically-expanded instance runs through the exact
+  same path an ordinary declared stage does).
+
+**One more prerequisite this plan didn't originally name, found while
+building §2's workspace-check step**: `ClaudeAgentOptions.tools` (which
+`engine/config.py`'s `builtin_tools` maps onto) is a base allow-list, not
+a disallow-list layered on Claude Code's own defaults — confirmed from
+`claude_agent_sdk`'s own `types.py`. With only `["Read", "Write"]`
+allowed, no session could ever list a directory or resolve a wildcard
+pattern at all (`Read` errors on a directory, same as this outer session's
+own `Read` tool) — a latent gap that already silently affected
+`morning-digest`'s own step 7 ("Glob the workspace's `data/` for the
+newest existing `holdings_*.json`"), not something new to this plan.
+Fixed: `builtin_tools` now defaults to `["Read", "Write", "Glob"]`
+(`engine/config.py`) — read-only, no write/execute surface, so it doesn't
+touch the order-execution or Bash-removal (issue #25) guardrail concerns.
 
 ## 1. Why two skills, not one — the mechanical finding this is built on
 
@@ -131,13 +153,36 @@ conventions.
 
 Never natively invoked — exposed only via `run_staged_research-discovery-gather`.
 
-### Frontmatter
+**Built. One correction from this section's original sketch, found while
+implementing rather than just transcribing it**: `results/research_*_{date}.md`
+as both `synthesize`'s own `produces` *and* the skill's top-level
+`expected_outputs` doesn't actually work. `compose_and_save`
+(`engine/staged_skills.py`) writes a staged skill's composed text
+literally to each `.md` pattern in `expected_outputs`, with only
+`{workspace}`/`{date}` substituted — a leftover `*` in that string would
+create a file literally named `research_*_<date>.md`, not a real
+per-request slug (unlike `screen-indian-stocks`'s `results/screen_*_<date>.json`,
+which is safe with a wildcard only because it's the *deterministic
+script's* own output, written directly by `screen_rank.py` with the real
+slug substituted — never routed through `compose_and_save` at all).
+Fixed by not trying to give this skill a separate `results/` artifact:
+`expected_outputs: []` (the Sources footer/SEBI disclaimer still get
+appended to the *returned* text regardless — that part of
+`compose_and_save` is unconditional, not gated on `expected_outputs`),
+and `synthesize`'s own `produces` targets `{workspace}/research/**/*.md`
+(a single glob covering all three buckets, verified to match both nested
+and zero-level paths) purely for the critical/fail-open existence check
+inside `run_staged_skill` — never for auto-writing. The real durable
+artifact is whichever `research/<bucket>/<slug>.md` file `synthesize`
+writes itself via `update_workspace_notes`, the same "engine decides
+where, model decides what" tool every other bucket write already uses.
+
+### Frontmatter (as built — `.claude/skills/research-discovery-gather/SKILL.md`)
 
 ```yaml
 ---
 name: research-discovery-gather
-expected_outputs:
-  - "{workspace}/results/research_*_{date}.md"
+expected_outputs: []
 stages:
   - id: gather
     dynamic: true          # NEW frontmatter concept — see §4
@@ -162,7 +207,7 @@ stages:
       Don't write a Sources footer or SEBI disclaimer — the engine
       appends both automatically.
     produces:
-      - "{workspace}/results/research_*_{date}.md"
+      - "{workspace}/research/**/*.md"
 ---
 ```
 
@@ -261,9 +306,9 @@ the *shape* of the fix, not the concrete server code.
 
 ## 6. Prerequisite/shared engine change
 
-Extend `engine/workspace_notes.py`'s `_resolve_target` allow-list to four
-patterns, not three — the earlier plan's `research/sectors/`,
-`research/stocks/`, `research/themes/` regexes, plus:
+**Built.** Extended `engine/workspace_notes.py`'s `_resolve_target`
+allow-list to four patterns, not three — the earlier plan's
+`research/sectors/`, `research/stocks/`, `research/themes/` regexes, plus:
 
 ```python
 _RESEARCH_PLAN_RE = re.compile(r"^data/research_plan_[a-z0-9]+(-[a-z0-9]+)*_\d{4}-\d{2}-\d{2}\.json$")
@@ -274,20 +319,40 @@ no new tool needed just for the plan-file handoff.
 
 ## 7. Testing plan
 
-- `tests/test_engine_workspace_notes.py` — all four target patterns, same
-  shape as existing `theses/` coverage.
-- New tests for `dynamic: true` stage expansion (§4.3 above).
-- Live-verification checklist, carried forward from the earlier plan
-  unchanged: crisp asks never reach `research-discovery`, exactly one
-  clarifying question when genuinely ambiguous (same #31-precedent
-  reliability risk, same escalation trigger — a bigger execution shape
-  doesn't make this judgment call more reliable, per last turn's finding
-  that "more architecture" doesn't fix it), already-researched subjects
-  lead with what's known, angle-overflow states what got deprioritized,
-  an unanswerable angle is reported honestly.
-- New: a run where one dynamically-generated gather stage genuinely fails
-  (bad tool call, no data) — confirms `synthesize` still completes and
-  names the gap, rather than the whole run aborting.
+- `tests/test_engine_workspace_notes.py` — **built**, all four target
+  patterns, same shape as existing `theses/` coverage.
+- `tests/test_engine_skills.py` — **built**, load-time validation for
+  `dynamic: true` (rejects missing `needs`, missing/zero/non-int
+  `max_instances`; accepts a well-formed entry).
+- `tests/test_engine_staged_skills.py` — **built**: `dynamic: true` stage
+  expansion (one instance per angle, capping at `max_instances` with the
+  overflow dropped not silently run, a missing plan file and a malformed
+  one both degrading to "nothing to expand" rather than crashing, one
+  failed gather instance not stopping a critical `synthesize`), plus one
+  integration test that loads the real, committed
+  `research-discovery-gather/SKILL.md` (not a synthetic stage list) and
+  drives it end to end through a fake harness — confirming the frontmatter
+  as authored actually produces the right session count and a footer/
+  disclaimer-bearing final text with no stray `results/` file.
+- `tests/test_engine_claude_harness.py` — **built**, `builtin_tools`
+  includes `Glob`; the full skill-discovery/native-vs-staged split
+  correctly separates `research-discovery` (native) from
+  `research-discovery-gather` (staged-only, filtered out of native
+  discovery) — verified live against the real `.claude/skills/` tree, not
+  just unit-tested.
+- **Not yet done** — live-verification checklist, carried forward from
+  the earlier plan unchanged: crisp asks never reach `research-discovery`,
+  exactly one clarifying question when genuinely ambiguous (same
+  #31-precedent reliability risk, same escalation trigger — a bigger
+  execution shape doesn't make this judgment call more reliable, per last
+  turn's finding that "more architecture" doesn't fix it), already-
+  researched subjects lead with what's known, angle-overflow states what
+  got deprioritized, an unanswerable angle is reported honestly. This
+  needs a real model turn, not a unit test — hasn't been run yet.
+- This last item is covered by the `test_engine_staged_skills.py` bullet
+  above (`test_run_staged_skill_one_failed_gather_instance_does_not_stop_synthesize`)
+  — a run where dynamically-generated gather instances fail confirms
+  `synthesize` still completes, rather than the whole run aborting.
 
 ## 8. Explicitly not decided / next design passes needed before build
 
@@ -298,5 +363,10 @@ no new tool needed just for the plan-file handoff.
 - Multi-bucket filing mechanics (`synthesize` deciding to write more than
   one `research/` bucket) — same open item as every prior doc, not
   resolved by this plan either.
-- Exact plan-file JSON schema above is a sketch, not a finalized contract
-  — worth a short review before code gets written against it.
+- The plan-file JSON schema (§2 step 4: `request`/`already_known`/`angles`,
+  each angle an `id`/`question`/`tool_hint`) is now the de facto contract
+  — `_expand_dynamic_stage` (`engine/staged_skills.py`) reads exactly this
+  shape, and the integration test in §7 exercises it — but it's only been
+  exercised by tests written alongside the code, never by a real model
+  turn actually composing one. Worth a short review once that's been
+  live-verified, not assumed correct from the tests alone.

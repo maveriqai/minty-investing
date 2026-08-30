@@ -390,6 +390,248 @@ def test_run_staged_skill_prints_per_stage_and_total_diagnostics(capsys):
     assert "$0.1000" in out  # 0.05 + 0.05
 
 
+def _write_plan_file(workspace_root, filename, angles):
+    data_dir = workspace_root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    plan = {"request": "test request", "already_known": [], "angles": angles}
+    (data_dir / filename).write_text(json.dumps(plan))
+    return data_dir / filename
+
+
+def _dynamic_stage(id_="gather", max_instances=6, **kwargs):
+    return {
+        "id": id_,
+        "dynamic": True,
+        "needs": ["{workspace}/data/research_plan_*_{date}.json"],
+        "produces": ["{workspace}/data/research_finding_*_{date}.json"],
+        "max_instances": max_instances,
+        **kwargs,
+    }
+
+
+def test_run_staged_skill_expands_a_dynamic_stage_into_one_instance_per_angle(tmp_path, monkeypatch):
+    """docs/research-discovery-plan.md §4 — a `dynamic: true` stage reads
+    the plan file its own `needs` points at and runs one fresh stage
+    session per angle, each through the identical execution path an
+    ordinary declared stage uses."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+    _write_plan_file(
+        workspace_root,
+        "research_plan_pli-semis_2026-08-30.json",
+        [
+            {"id": "policy", "question": "What did the new tranche fund?", "tool_hint": "india_news.get_news"},
+            {"id": "names", "question": "Which listed names are exposed?"},
+        ],
+    )
+
+    stages = [_dynamic_stage()]
+    sessions = [_FakeSession(["policy finding"]), _FakeSession(["names finding"])]
+    harness = _FakeHarness(sessions)
+
+    asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+
+    assert len(harness.opened_tools) == 2
+    assert "policy" in sessions[0].received_prompts[0]
+    assert "What did the new tranche fund?" in sessions[0].received_prompts[0]
+    assert "india_news.get_news" in sessions[0].received_prompts[0]
+    assert "names" in sessions[1].received_prompts[0]
+    assert "Which listed names are exposed?" in sessions[1].received_prompts[0]
+
+
+def test_run_staged_skill_caps_dynamic_expansion_at_max_instances(tmp_path, monkeypatch):
+    """`open_deep_research`'s own `max_concurrent_research_units` slicing
+    is the direct precedent (docs/research-discovery-plan.md §4) — a hard,
+    orchestrator-enforced cap, independent of how many angles the plan
+    file itself claims."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+    angles = [{"id": f"angle{i}", "question": f"q{i}"} for i in range(8)]
+    _write_plan_file(workspace_root, "research_plan_wide_2026-08-30.json", angles)
+
+    stages = [_dynamic_stage(max_instances=3)]
+    sessions = [_FakeSession(["a"]), _FakeSession(["b"]), _FakeSession(["c"])]
+    harness = _FakeHarness(sessions)
+
+    asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+
+    # Capped at 3 — only 3 sessions provided, so a 4th open_session call
+    # would have raised (IndexError popping an empty list) had the cap not
+    # been enforced.
+    assert len(harness.opened_tools) == 3
+
+
+def test_run_staged_skill_dynamic_stage_with_missing_plan_file_expands_to_nothing(tmp_path, monkeypatch):
+    """No plan file (research-discovery never ran, or hasn't written it
+    yet) means zero instances to run — fail-open, not a crash, and a fixed
+    later stage (synthesize) still runs."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+
+    stages = [_dynamic_stage(), _stage("synthesize")]
+    sessions = [_FakeSession(["synth text"])]  # only synthesize should open a session
+    harness = _FakeHarness(sessions)
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+
+    assert len(harness.opened_tools) == 1
+    assert final_text == "synth text"
+
+
+def test_run_staged_skill_dynamic_stage_with_malformed_plan_file_expands_to_nothing(tmp_path, monkeypatch):
+    """A plan file that exists but isn't valid JSON must degrade the same
+    way a missing one does — no instances, no crash — not propagate a
+    JSONDecodeError up through the whole staged run."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+    data_dir = workspace_root / "data"
+    data_dir.mkdir(parents=True)
+    (data_dir / "research_plan_bad_2026-08-30.json").write_text("not valid json")
+
+    stages = [_dynamic_stage(), _stage("synthesize")]
+    sessions = [_FakeSession(["synth text"])]
+    harness = _FakeHarness(sessions)
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+
+    assert len(harness.opened_tools) == 1
+    assert final_text == "synth text"
+
+
+def test_run_staged_skill_one_failed_gather_instance_does_not_stop_synthesize(tmp_path, monkeypatch):
+    """docs/research-discovery-plan.md §3: fail-open applies per-instance —
+    an angle's gather stage not writing its finding file must not cancel
+    the other angles or the run; a fixed later stage (synthesize) still
+    runs regardless, since the dynamic block itself is never critical."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspaces" / "daily"
+    workspace_root.mkdir(parents=True)
+    (workspace_root / "results").mkdir()
+    _write_plan_file(
+        workspace_root,
+        "research_plan_pli-semis_2026-08-30.json",
+        [{"id": "policy", "question": "q1"}, {"id": "names", "question": "q2"}],
+    )
+
+    stages = [_dynamic_stage(), _stage("synthesize", critical=True, produces=["{workspace}/results/x.md"])]
+    sessions = [_FakeSession(["policy"]), _FakeSession(["names"]), _FakeSession(["synth"])]
+    harness = _FakeHarness(sessions)
+
+    # Neither gather instance's fake session actually writes a finding
+    # file, so both come back "expected output missing" — fail-open, not
+    # critical. synthesize's own fake session does write its produces
+    # file, standing in for a real session's tool call.
+    orig_synth_send = sessions[2].send
+
+    async def _synth_send_and_write(prompt, *, workspace_root=None):
+        (workspace_root / "results" / "x.md").write_text("done")
+        async for chunk in orig_synth_send(prompt, workspace_root=workspace_root):
+            yield chunk
+
+    sessions[2].send = _synth_send_and_write
+
+    final_text, _ = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, "body", stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+
+    assert len(harness.opened_tools) == 3  # both gather instances + synthesize, none skipped
+    assert final_text == "synth"
+
+
+def test_research_discovery_gather_real_skill_runs_end_to_end(tmp_path, monkeypatch):
+    """Integration check against the real .claude/skills/research-discovery-
+    gather/SKILL.md (docs/research-discovery-plan.md §3), not a synthetic
+    stage list — proves the actual authored frontmatter (a dynamic gather
+    stage + a critical synthesize stage) drives through run_staged_skill
+    correctly: one fresh session per angle, then synthesize, with the
+    engine's Sources footer + SEBI disclaimer appended to the returned
+    text, and no separate results/ file (expected_outputs: [] — the real
+    durable output is the research/ bucket file synthesize itself writes)."""
+    import engine.skills as skills_module
+
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "results").mkdir()
+    _write_plan_file(
+        workspace_root,
+        "research_plan_pli-semis_2026-08-30.json",
+        [
+            {"id": "policy", "question": "What did the tranche fund?", "tool_hint": "india_news.get_news"},
+            {"id": "names", "question": "Which listed names are exposed?"},
+        ],
+    )
+
+    # SKILLS_ROOT is left unpatched — this reads the real, committed SKILL.md.
+    stages = skills_module.load_stages("research-discovery-gather")
+    skill_body = skills_module.load_skill_body("research-discovery-gather")
+
+    sessions = [
+        _FakeSession(
+            ["policy finding"], captures=[("india_news", "get_news", workspace_root / "data" / "news.json")]
+        ),
+        _FakeSession(["names finding"]),
+        _FakeSession(["# Brief"]),
+    ]
+    orig_synth_send = sessions[2].send
+
+    async def _synth_send(prompt, *, workspace_root=None):
+        (workspace_root / "research" / "themes").mkdir(parents=True, exist_ok=True)
+        (workspace_root / "research" / "themes" / "pli-semiconductors.md").write_text("# PLI semis")
+        async for chunk in orig_synth_send(prompt, workspace_root=workspace_root):
+            yield chunk
+
+    sessions[2].send = _synth_send
+    harness = _FakeHarness(sessions)
+
+    final_text, all_captures = asyncio.run(
+        staged_skills.run_staged_skill(
+            harness, FAKE_TOOLS, skill_body, stages, workspace_root=workspace_root, date="2026-08-30"
+        )
+    )
+    full_text = staged_skills.compose_and_save(
+        final_text, all_captures, skill_name="research-discovery-gather", workspace_root=workspace_root
+    )
+
+    assert len(harness.opened_tools) == 3  # 2 gather instances + synthesize, none skipped
+    assert full_text.startswith("# Brief")
+    assert "SEBI-registered" in full_text  # engine-appended disclaimer present
+    assert list((workspace_root / "results").iterdir()) == []  # no engine-composed file — expected_outputs: []
+    assert (workspace_root / "research" / "themes" / "pli-semiconductors.md").read_text() == "# PLI semis"
+
+
 def test_compose_and_save_writes_footer_and_md_output(tmp_path, monkeypatch):
     import engine.skills as skills_module
 
