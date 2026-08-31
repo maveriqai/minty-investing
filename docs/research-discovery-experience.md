@@ -1,4 +1,4 @@
-# Research Discovery — Product & User Experience (exploratory, not yet designed)
+# Research Discovery — Product & User Experience (built 2026-08-31)
 
 Captures the shape of an idea, not a committed feature — written to sharpen
 and preserve the thinking before any design or implementation decision.
@@ -8,6 +8,15 @@ This is the fuller specification of the gap named in three places already
 research-note buckets get used — see §8. Companion in spirit to
 `research-notes-experience.md`, same "product experience first" approach,
 for a bigger and less settled idea.
+
+**Status note (2026-08-31):** shipped as the `research-discovery` +
+`research-discovery-gather` skill pair (`b6ddc90`) — the scoping-question
+rule in §4 (fire only when two reasonable interpretations would lead to
+meaningfully different work) and its own worked examples are implemented
+close to verbatim in `research-discovery`'s `SKILL.md` steps. See
+`research-discovery-plan.md` for the engineering shape (two skills, not
+one — a staged run can't pause mid-way to ask the user anything) and
+`research-discovery-architecture.md` for why that split was chosen.
 
 ## 1. The moment this is for
 

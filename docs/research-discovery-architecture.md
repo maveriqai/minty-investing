@@ -1,11 +1,17 @@
-# Research Discovery — Solutioning / Architecture (exploratory, not yet committed)
+# Research Discovery — Solutioning / Architecture (built 2026-08-31)
 
 Companion to `research-discovery-experience.md` (product/UX view, read that
 first — this doc doesn't repeat the user-facing walkthrough). Captures how
 the idea there could actually be built against this engine, informed by
-external precedent researched 2026-08-30 (sources at the bottom). Same
-status as the experience doc: exploratory, sharpening the idea, not a
-committed design.
+external precedent researched 2026-08-30 (sources at the bottom).
+
+**Status note (2026-08-31):** the split argued for below — a step inside
+one skill for scoping, handing off to a separate staged skill for
+gather/synthesize — shipped as `research-discovery` +
+`research-discovery-gather` (`b6ddc90`, fixed same day in `2ae8273`). See
+`research-discovery-plan.md` for the as-built engineering detail; this doc
+stays as the record of why that shape was chosen over the alternatives in
+§1.
 
 ## 1. Correcting the naive decomposition
 
