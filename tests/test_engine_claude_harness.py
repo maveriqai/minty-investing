@@ -736,8 +736,12 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
     # Glob added for research-discovery's workspace-check step
     # (docs/research-discovery-plan.md §2) — read-only, no write/execute
     # surface, so it doesn't touch the order-execution/Bash-removal
-    # guardrail concerns.
-    assert tools.builtin_tools == ["Read", "Write", "Glob"]
+    # guardrail concerns. Skill added after live-testing showed native
+    # Skill invocation was unreachable without it — `tools` gates Skill
+    # itself, a separate field from `skills=[...]`'s own auto-added
+    # `allowed_tools` entry (see engine/config.py's comment for the full
+    # live A/B).
+    assert tools.builtin_tools == ["Read", "Write", "Glob", "Skill"]
     # Default 1MB SDK buffer crashed live on a real Layer 2 tool response
     # while porting red-flag-scan — see engine/config.py's _MAX_BUFFER_SIZE.
     assert tools.max_buffer_size == 10_000_000

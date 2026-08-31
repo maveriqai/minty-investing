@@ -49,6 +49,16 @@ Fixed: `builtin_tools` now defaults to `["Read", "Write", "Glob"]`
 (`engine/config.py`) — read-only, no write/execute surface, so it doesn't
 touch the order-execution or Bash-removal (issue #25) guardrail concerns.
 
+**A second, more consequential instance of the same class of gap, found
+by live-testing (§7) rather than by building**: that same `builtin_tools`
+list never included `"Skill"` either — `ClaudeAgentOptions.tools` gates
+the `Skill` tool itself, not just Glob/Bash/Edit, and `skills=[...]`'s own
+auto-added `allowed_tools` entry (permission auto-approval) doesn't
+substitute for that. Native Skill invocation was unreachable project-wide
+until this was added — see §7's live-verification writeup for the exact
+A/B. Fixed: `builtin_tools` now defaults to
+`["Read", "Write", "Glob", "Skill"]`.
+
 ## 1. Why two skills, not one — the mechanical finding this is built on
 
 Confirmed directly from `engine/staged_skill_tools.py`, not assumed:
@@ -340,15 +350,58 @@ no new tool needed just for the plan-file handoff.
   `research-discovery-gather` (staged-only, filtered out of native
   discovery) — verified live against the real `.claude/skills/` tree, not
   just unit-tested.
-- **Not yet done** — live-verification checklist, carried forward from
-  the earlier plan unchanged: crisp asks never reach `research-discovery`,
-  exactly one clarifying question when genuinely ambiguous (same
-  #31-precedent reliability risk, same escalation trigger — a bigger
-  execution shape doesn't make this judgment call more reliable, per last
-  turn's finding that "more architecture" doesn't fix it), already-
-  researched subjects lead with what's known, angle-overflow states what
-  got deprioritized, an unanswerable angle is reported honestly. This
-  needs a real model turn, not a unit test — hasn't been run yet.
+- **Live-verification checklist — run 2026-08-31**, three real model turns
+  against `MINTY_WORKSPACE` sandboxes (not unit tests):
+  - **Genuinely ambiguous request** ("Just read that India's PLI scheme
+    for semiconductors got a big new funding tranche. Might be worth a
+    look.") — asked exactly one clarifying question (pure-play vs. wider
+    supply chain, curiosity vs. position-building — almost verbatim the
+    SKILL.md's own worked example), then on the follow-up answer ran the
+    full pipeline: wrote a well-formed 6-angle plan file, all 6 dynamic
+    gather instances succeeded, `synthesize` composed a coherent,
+    correctly-sourced, appropriately-caveated brief and filed it to
+    `research/themes/pli-semiconductors.md`. Cost/latency: ~$2.79,
+    ~10.7 min wall clock, 46.5k tokens across 8 sessions (1 front-door +
+    6 gather + 1 synthesize) for one 6-angle pass — a real number worth
+    keeping in mind for cost expectations, not previously measured.
+  - **Crisp, already-scoped request** ("screen undervalued auto sector
+    stocks") — routed to `screen-indian-stocks`, not `research-discovery`
+    — the routing boundary holds under a live model decision, not just
+    the two skills' description text.
+  - **Unambiguous open-ended request** ("What's driving the market down
+    this week?") — correctly skipped the clarifying question (only one
+    reasonable reading, per the SKILL.md's own step 1 example) and ran
+    straight through in one turn: 6 angles, all succeeded, filed to
+    `research/themes/market-down-this-week.md`, explicitly flagged a real
+    gap (no CPI/GDP data source available) rather than guessing.
+  - **One real, load-bearing bug found and fixed by this live run**:
+    `engine/config.py`'s `builtin_tools` never included `"Skill"` —
+    `ClaudeAgentOptions.tools` gates the `Skill` tool itself, a separate
+    field from `skills=[...]`'s own auto-added `allowed_tools` entry
+    (permission auto-approval, not availability). Without it, native
+    Skill invocation was live-confirmed unreachable: the same
+    research-discovery-shaped prompt either got answered ad hoc (direct
+    `india_macro`/`india_news` calls, skipping the skill entirely) or got
+    *described* ("that's a job for the research-discovery skill...")
+    without ever being invoked — and started working correctly only once
+    `"Skill"` was added to the allow-list. This affected every native
+    (non-staged) skill in the whole codebase, not just research-discovery
+    — staged skills were unaffected, since `run_staged_<skill>` is a
+    plain in-process MCP tool, never gated by this allow-list. A skill
+    with a self-describing deterministic-script tool name (e.g.
+    red-flag-scan's `run_red_flag_check`) could sometimes still produce a
+    plausible-looking correct answer from tool names alone without ever
+    loading the real SKILL.md content, which is exactly why this stayed
+    invisible until a skill whose real value isn't reconstructable from
+    tool names alone (workspace check, structured planning, an exact
+    hand-off filename) made it visible. Fixed:
+    `builtin_tools` now defaults to `["Read", "Write", "Glob", "Skill"]`.
+  - Not yet exercised live: already-researched subjects leading with
+    what's known (needs a second pass on the same subject), and
+    angle-overflow stating what got deprioritized (needs a request with
+    >6 genuinely relevant angles) — both plausible from the SKILL.md's
+    own instructions and covered in spirit by the unit tests above, but
+    not yet seen in a real model turn.
 - This last item is covered by the `test_engine_staged_skills.py` bullet
   above (`test_run_staged_skill_one_failed_gather_instance_does_not_stop_synthesize`)
   — a run where dynamically-generated gather instances fail confirms

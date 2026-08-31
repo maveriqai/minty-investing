@@ -87,6 +87,33 @@ def build_tool_config(
         # doesn't touch the order-execution or Bash-removal (issue #25)
         # guardrail concerns at all.
         #
+        # Skill added 2026-08-31, found live-testing research-discovery:
+        # `ClaudeAgentOptions.tools` gates `Skill` itself, exactly like every
+        # other built-in — `skills=[...]` (below) makes the SDK add "Skill"
+        # to `allowed_tools` (permission auto-approval) automatically per its
+        # own docstring, but that's a *different* field from `tools` (which
+        # built-ins actually exist at all) and does not add it there. Without
+        # this, `tools=["Read","Write","Glob"]` never made native Skill
+        # invocation reachable at all — live A/B'd: the exact same
+        # research-discovery-shaped prompt either got answered ad hoc (the
+        # model just used india_macro/india_news directly) or got *described*
+        # ("that's a job for the research-discovery skill...") without the
+        # model ever actually invoking it, and only started working —
+        # correctly asking its one clarifying question — once "Skill" was
+        # added here. This affected every native (non-staged) skill, not
+        # just research-discovery; staged skills were unaffected, since
+        # `run_staged_<skill>` is a plain in-process MCP tool
+        # (`staged_workflows` server), never gated by this allow-list at all.
+        # A skill with a self-describing enough deterministic-script tool
+        # name (e.g. red-flag-scan's `run_red_flag_check`) could sometimes
+        # still produce a plausible-looking correct answer from tool names
+        # alone without ever loading the real SKILL.md content — which is
+        # exactly why this was never caught by unit tests (they exercise
+        # `_build_options`'s wiring, not whether the model actually calls
+        # Skill) and stayed invisible until a skill whose real value
+        # (workspace check, structured planning, an exact hand-off filename)
+        # isn't reconstructable from tool names alone made it visible.
+        #
         # No Bash (issue #25, fixed 2026-08-27): every deterministic-script
         # tool already shells out server-side via engine/skill_tools.py's own
         # subprocess call, not the model's own Bash — so Bash was never
@@ -101,6 +128,6 @@ def build_tool_config(
         # `india_filings.get_filing_document` is the governed replacement.
         # Same "structural, not policy" bar CLAUDE.md sets for order
         # execution — removing the tool closes the whole class at once.
-        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write", "Glob"],
+        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write", "Glob", "Skill"],
         max_buffer_size=max_buffer_size if max_buffer_size is not None else _MAX_BUFFER_SIZE,
     )
