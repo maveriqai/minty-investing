@@ -175,13 +175,19 @@ Three steps, in order, from a fresh install to your first real result.
 - **portfolio-health-check** — "how's my portfolio doing," "am I too
   concentrated in anything" — total P&L, concentration, winners/losers.
 - **red-flag-scan** — "any red flags on RELIANCE" — governance/safety
-  checklist on one held or watchlist name.
+  checklist on one held or watchlist name. Checks
+  `workspace/research/stocks/<SYMBOL>.md` for a prior check on the name
+  first, and merges its own findings back into that same file.
 - **thesis-tracker** — "track a thesis on RELIANCE," "is my thesis on X
   still intact" — pillars, risks, catalysts, and conviction for one held
-  or watchlist name, tracked as a living scorecard across sessions.
+  or watchlist name, tracked as a living scorecard across sessions. A
+  brand-new thesis picks up and cites any prior research note on that
+  symbol, and writes one line back once the thesis opens.
 - **screen-indian-stocks** — "find undervalued auto sector stocks,"
   "screen IT services for quality names" — sector/theme candidate
-  discovery ranked on valuation/quality, Nifty 500 coverage only.
+  discovery ranked on valuation/quality, Nifty 500 coverage only. Checks
+  `workspace/research/sectors/<slug>.md` for prior context on the sector
+  first, and merges its own screen history back into that same file.
 - **research-discovery** — a headline, a tip, a vague hunch, or a
   cross-cutting question with no single sector/symbol yet ("what's
   driving FII outflows," "PLI scheme beneficiaries," "should I be
@@ -191,6 +197,12 @@ Three steps, in order, from a fresh install to your first real result.
   `workspace/research/sectors|stocks|themes/<key>.md` — the compounding
   front door for research that doesn't already know its own shape (see
   `docs/research-discovery-plan.md`).
+
+All four of the above share those same `research/sectors|stocks|themes/`
+bucket files — each skill owns its own section (`## Findings`, `## Screen
+History`, `## Red-Flag Checks`) plus a shared `## Observations` log, so
+research compounds no matter which skill you started from (see
+`docs/research-notes-design.md`).
 
 Every output is grounded in real tool calls (never model memory), ends
 with a Sources footer, and carries the SEBI disclaimer. Minty is

@@ -95,9 +95,9 @@ change what gets looked up** — not as a default courtesy step.
   goes straight to `screen-indian-stocks` exactly as it does today. This
   flow doesn't touch that path at all.
 - **"Someone told me to check out XYZ"** — already a symbol. Goes to a
-  single-stock path (`red-flag-scan`, or the ad hoc research gap in #56),
-  not this one — no multi-angle reasoning needed for something this
-  specific.
+  single-stock path (`red-flag-scan`, which now also checks and updates
+  `research/stocks/<SYMBOL>.md` itself — #56/#59, closed), not this one —
+  no multi-angle reasoning needed for something this specific.
 - **"PLI semiconductor tranche"** — genuinely ambiguous (pure-play vs.
   broader supply chain, quick curiosity vs. building toward a position) in
   a way that changes real work about to happen. One question, not five.

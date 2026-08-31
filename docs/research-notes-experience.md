@@ -1,9 +1,21 @@
-# Research Notes — Product & User Experience (proposed, not yet implemented)
+# Research Notes — Product & User Experience (built 2026-08-31, wiring pass)
 
-Fixes issue #40. Companion to `research-notes-design.md`, which covers the
-engineering mechanics (allow-listed write target, file format, testing).
-This doc starts from the other end: what actually changes for the person
-using Minty, before any implementation detail.
+Fixes issue #40 (superseded by #58/#59, both closed). Companion to
+`research-notes-design.md`, which covers the engineering mechanics
+(allow-listed write target, file format, testing) and now reflects what
+actually shipped. This doc starts from the other end: what actually
+changes for the person using Minty, before any implementation detail.
+
+**Status note (2026-08-31):** the product shape described below shipped —
+`screen-indian-stocks` and `red-flag-scan` both check for and merge into a
+durable research note, and the thesis hand-off in §5 is built. Two details
+in the original proposal changed on the way to real code, both explained
+where they come up: the note lives at `research/sectors/<slug>.md` /
+`research/stocks/<SYMBOL>.md` (a key-scoped split, not the single flat
+`research/<slug>.md` path §3's example uses — see
+`research-notes-design.md` §2.2), and §7 landed on the "narrated delta"
+side but as a lighter prose callback, not the deterministic diff table
+§3's example implies — see the note at §7.
 
 ## 1. The gap, from the user's seat
 
@@ -46,7 +58,9 @@ scope question — see §6.
 
 ## 3. What the user can go read directly
 
-`workspace/research/<slug>.md` — a plain markdown file, openable in
+`workspace/research/sectors/<slug>.md` (as shipped — see the status note
+above; the example below still shows the originally-proposed flat path) —
+a plain markdown file, openable in
 Obsidian or any editor, the same way `theses/RELIANCE.md` already is
 today. Roughly:
 
@@ -167,3 +181,12 @@ inconsistent — e.g. a candidate's rank moved but its underlying P/E
 didn't, which would mean a peer's number changed instead) rather than
 asserting a clean story when the underlying data doesn't cleanly support
 one.
+
+**As shipped (2026-08-31):** landed on the narrated-delta side of this
+question, but lighter than the full computed diff table sketched above —
+`screen-indian-stocks` step 3 and `red-flag-scan` step 3 read the prior
+note and lead the reply with whatever's still relevant ("your last screen
+on this sector, three weeks ago, flagged...") rather than computing a
+structured rank/P/E delta. Same spirit (context over cold start), smaller
+surface for the model to get wrong — a deterministic diff table remains a
+reasonable future upgrade if the prose version proves insufficient.
