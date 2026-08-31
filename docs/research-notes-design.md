@@ -1,16 +1,29 @@
-# Research Notes — Design Doc (proposed, not yet implemented)
+# Research Notes — Design Doc (built 2026-08-31, wiring pass)
 
-Fixes issue #40. Covers engineering mechanics — see
-`research-notes-experience.md` for the product/user-experience side first
-(what changes for the person using Minty, before any implementation
-detail). Part of the Stage 1 (Research) gap named in
-`investing-workflow-roadmap.md` and tracked by #33: `thesis-tracker`
-compounds across sessions for a single symbol (`theses/<SYMBOL>.md`);
-nothing plays that role for `screen-indian-stocks`' sector/theme-level
-output. A real screen ("research investment opportunities in automotive
-sector," live-tested 2026-08-28) leaves behind only a date-stamped
-`results/screen_*.json` and an unindexed session transcript — a repeat
-query on the same sector has nothing to read back into.
+Fixes issue #40 (split into #58/#59 during the 2026-08-31 issue triage).
+Covers engineering mechanics — see `research-notes-experience.md` for the
+product/user-experience side first (what changes for the person using
+Minty, before any implementation detail). Part of the Stage 1 (Research)
+gap named in `investing-workflow-roadmap.md` and tracked by #33:
+`thesis-tracker` compounds across sessions for a single symbol
+(`theses/<SYMBOL>.md`); nothing played that role for `screen-indian-stocks`'
+sector/theme-level output. A real screen ("research investment
+opportunities in automotive sector," live-tested 2026-08-28) left behind
+only a date-stamped `results/screen_*.json` and an unindexed session
+transcript — a repeat query on the same sector had nothing to read back
+into.
+
+**Status note (2026-08-31):** this doc was written before
+`research-discovery`/`research-discovery-gather` existed
+(`docs/research-discovery-plan.md`). That work independently landed the
+bucket location this doc's §2.2 originally proposed — split into
+`research/sectors|stocks|themes/<key>.md` rather than the flat
+`research/<slug>.md` this doc first sketched, and already allow-listed in
+`engine/workspace_notes.py`. §2.2 and §2.5 below are updated in place to
+match what's actually built; the rest of this doc's reasoning (keying,
+content model, merge behavior) still holds and is now shared across four
+producers (`research-discovery-gather`, `screen-indian-stocks`,
+`red-flag-scan`, `thesis-tracker`'s write-back), not just one.
 
 ## 1. Problem, restated precisely
 
@@ -90,14 +103,28 @@ wrong. Same already-named "no sector attached yet" stage-1 gap
 skill) — out of scope here, and would need its own keying decision if it
 ever gets built.
 
-### 2.2 Location — `workspace/research/<industry-slug>.md`
+### 2.2 Location — `workspace/research/sectors/<industry-slug>.md`
 
 Parallel to `workspace/theses/<SYMBOL>.md`, for the same reason: this is
 the one other case where a skill's output is a living, per-key document
 rather than a flat, independent, date-stamped result. `docs/vision.md` §4
 already names `theses/<SYMBOL>.md` as "the one exception to flat" —
-`research/<slug>.md` is a second instance of that same exception, not a
-new category of exception.
+`research/sectors/<slug>.md` is a second instance of that same exception,
+not a new category of exception.
+
+**Updated 2026-08-31:** as actually built (via `research-discovery-plan.md`,
+independently of this doc), the bucket is split three ways by subject
+shape rather than being one flat `research/<slug>.md`:
+`research/sectors/<industry-slug>.md` (this section's original target —
+`screen-indian-stocks`' own output), `research/stocks/<SYMBOL>.md` (a
+single-symbol subject — `red-flag-scan`'s output, and the target §2.5's
+research→thesis bridge actually reads/writes), and
+`research/themes/<slug>.md` (a cross-cutting subject that doesn't reduce
+to one sector or stock). All three are allow-listed in
+`engine/workspace_notes.py`'s `_resolve_target`. The keying logic in §2.1
+above is unchanged — it's still "reuse the deterministic slug the
+producing skill already computed" — only the directory a given key lands
+in changed, by subject shape.
 
 ### 2.3 Content model
 
@@ -127,6 +154,16 @@ Two sections, both append-only:
   closer look next time, a red flag from step 6's optional
   red-flag-annotation of the top 5. Dated bullets, oldest first, never
   rewritten — same convention as thesis-tracker's own scorecard log.
+
+**Updated 2026-08-31:** these two sections aren't the whole file anymore —
+`research-discovery-gather`'s `synthesize` stage also writes into these
+same bucket files, under its own `## Findings` heading (a dated narrative
+entry per gather run), and `red-flag-scan` writes a parallel `##
+Red-Flag Checks` table into the `research/stocks/` bucket (same shape as
+this section's `## Screen History`, just keyed by symbol instead of
+sector). All four producers share one `## Observations` section and the
+same rule: read the file first, append under your own heading, never
+touch or rewrite a section you don't own.
 
 No new deterministic script. Appending a Screen History row is
 transcription from an already-computed JSON file, not money-math — the
@@ -162,30 +199,45 @@ themselves.
 Two linked, one-directional writes, kept deliberately asymmetric so
 neither skill's `SKILL.md` is doing the other's job:
 
-- **thesis-tracker reads research notes when a *new* thesis is opened**
-  (its step 2, new-thesis path only — an update to an existing thesis has
-  no reason to re-check). Before asking the user for pillars/risks/
-  target, search `workspace/research/*.md` for the symbol (a handful of
-  files, each small — a plain `Read`/`Grep` pass, no new tool, no
-  meaningful cost). If found, cite what's already there as a starting
-  point in the prompt back to the user — rank history, P/E/ROE with
-  source, any Observations already logged for that name — clearly
-  labeled as "from your research note on `<industry>`, dated `<date>`,"
-  never silently folded into the thesis as if newly derived. **The user
-  still states the pillars, risks, target price, and stop-loss
-  themselves** — this is citation of already-gathered facts, not
-  thesis-tracker deriving anything, so it doesn't touch the "target price
-  is the user's stated input, not this skill's output" guardrail at all.
-- **thesis-tracker writes one line back to the research note that
-  surfaced the name**, in the same step, once the new thesis is actually
-  opened: append to that file's Observations, e.g. "2026-09-01: started a
-  thesis on TATAMOTORS, see `theses/TATAMOTORS.md`." Uses the same
-  already-allow-listed `research/<slug>.md` target — no new engine
-  mechanism, since `update_workspace_notes`' allow-list is keyed on the
-  target path pattern, not on which skill is calling it. This is what
-  makes the research note's own history genuinely useful later: opening
-  it shows which candidates converted into a real tracked thesis and
-  which didn't, not just a list of names that were once ranked well.
+- **thesis-tracker reads `research/stocks/<SYMBOL>.md` when a *new*
+  thesis is opened** (its step 2, new-thesis path only — an update to an
+  existing thesis has no reason to re-check). Before asking the user for
+  pillars/risks/target: `Read` `research/stocks/<SYMBOL>.md` — exact key,
+  no `Glob`/search needed (unlike `research-discovery`'s own step 2,
+  which scans whole subdirectories because it doesn't yet have one
+  specific symbol to key on; thesis-tracker always does). If found, cite
+  what's already there as a starting point in the prompt back to the
+  user — red-flag history, any `research-discovery` `## Findings`, prior
+  `## Observations` — clearly labeled as "from your research note on
+  `<SYMBOL>`, dated `<date>`," never silently folded into the thesis as
+  if newly derived. **The user still states the pillars, risks, target
+  price, and stop-loss themselves** — this is citation of already-gathered
+  facts, not thesis-tracker deriving anything, so it doesn't touch the
+  "target price is the user's stated input, not this skill's output"
+  guardrail at all.
+- **thesis-tracker writes one line back to that same file**, in step 5,
+  once the new thesis is actually opened: append to its `##
+  Observations`, e.g. "2026-09-01: started a thesis on TATAMOTORS, see
+  `theses/TATAMOTORS.md`." Uses the same already-allow-listed
+  `research/stocks/<SYMBOL>.md` target — no new engine mechanism, since
+  `update_workspace_notes`' allow-list is keyed on the target path
+  pattern, not on which skill is calling it. This is what makes the
+  research note's own history genuinely useful later: opening it shows
+  which candidates converted into a real tracked thesis and which didn't,
+  not just a list of names that were once flagged or ranked well.
+
+**Updated 2026-08-31:** originally keyed on the (now superseded) flat
+`research/<industry-slug>.md`, since a symbol's only research trail was a
+sector screen. Now that `research/stocks/<SYMBOL>.md` exists as its own
+bucket (§2.2), the bridge targets that instead — a tighter, symbol-exact
+key than the sector file, and the same file `red-flag-scan` (#59) and a
+single-symbol `research-discovery` run both already write into. A symbol
+that only ever showed up in a *sector* screen (`research/sectors/`, never
+individually red-flag-checked or discovery-researched) has no
+`research/stocks/<SYMBOL>.md` yet, so thesis-tracker's lookup finds
+nothing for it — a real, accepted gap (see the out-of-scope note on
+sector→stock cross-pollination in `docs/skills.md`'s design notes for
+`screen-indian-stocks`/`red-flag-scan`), not a bug in this bridge.
 
 No change to `screen-indian-stocks` for this part — the bridge lives
 entirely in `thesis-tracker`'s own new-thesis path, since that's the only
@@ -197,81 +249,93 @@ shape as issue #12 (nudge on thesis-less positions nearing entry), one
 stage earlier in the pipeline — worth its own issue once this bridge
 exists to nudge from, not something to bundle into #40's implementation.
 
-## 3. Mechanical changes
+## 3. Mechanical changes (as actually implemented, 2026-08-31)
 
-- **`engine/workspace_notes.py`** — extend the allow-list. Currently
-  `_resolve_target` accepts `"notes.md"` or `theses/<SYMBOL>.md`
-  (`_THESIS_TARGET_RE`). Add:
+- **`engine/workspace_notes.py`** — the allow-list extension this section
+  originally specified was built already, but with the sectors/stocks/
+  themes split (§2.2) instead of one flat pattern:
+  `_SECTOR_RESEARCH_RE`, `_STOCK_RESEARCH_RE`, `_THEME_RESEARCH_RE` (plus
+  `_RESEARCH_PLAN_RE` for `research-discovery`'s own plan-file handoff,
+  unrelated to this doc). Landed as part of `docs/research-discovery-plan.md`,
+  not this doc — see that plan's §6 for the actual mechanics. No further
+  engine change needed for #58/#59/thesis-tracker's bridge; every target
+  path this section's producers write is already allow-listed.
 
-  ```python
-  _RESEARCH_TARGET_RE = re.compile(r"^research/[a-z0-9]+(-[a-z0-9]+)*\.md$")
-  ```
+- **`.claude/skills/screen-indian-stocks/SKILL.md`** (issue #58) — a new
+  step 3 (before building the candidate universe) reads
+  `research/sectors/<industry-slug>.md` and leads with anything relevant;
+  a new step 10 (after composing the brief) merges a `## Screen History`
+  row and an `## Observations` bullet into that same file via
+  `update_workspace_notes`, reusing the slug from step 4/6's own output
+  filenames rather than recomputing it (§2.1). No `expected_outputs`
+  change — this file is a manually-merged bucket note, not an
+  engine-auto-composed artifact, same reasoning `research-discovery-gather`
+  already established for its own `expected_outputs: []`.
 
-  matching the exact `_slug()` output shape (lowercase, single hyphens,
-  no leading/trailing hyphen). Update `_resolve_target` to check it, and
-  update `_TARGET_DESCRIPTION` / the tool's registered description string
-  to document the third accepted shape, same pattern as the existing
-  thesis-file documentation. Still a small, fixed set the model chooses
-  *from* — no arbitrary path.
-
-- **`.claude/skills/screen-indian-stocks/SKILL.md`** — add a step after
-  the current step 8 (compose the brief): read `research/<slug>.md` via
-  `Read` (may not exist yet), merge in this run's Screen History row plus
-  any Observations worth keeping (including anything from step 6's
-  optional red-flag annotation), then call `update_workspace_notes` with
-  `target` set to `research/<slug>.md`. Explicitly reuse the slug from
-  step 3/5's own output filename rather than recomputing it (§2.1). Add
-  `"{workspace}/research/*.md"` to the frontmatter's `expected_outputs`.
+- **`.claude/skills/red-flag-scan/SKILL.md`** (issue #59) — same shape: a
+  new step 3 reads `research/stocks/<SYMBOL>.md` before pulling the six
+  inputs; a new step 7 (after composing the brief) merges a `##
+  Red-Flag Checks` row and an `## Observations` bullet into it. This
+  section originally said "no changes needed" to red-flag-scan, on the
+  assumption its only research-note presence would be as a byproduct of
+  `screen-indian-stocks`' own step 6/7 top-5 annotation — but that never
+  gave a *direct* `red-flag-scan` run (the common case — "any red flags on
+  X" outside a screen) anywhere durable to write to. #59 fixes that gap
+  directly instead.
 
 - **`.claude/skills/thesis-tracker/SKILL.md`** — in step 2's new-thesis
-  path only, add the research-note lookup and citation described in
-  §2.5, and the single Observations line written back via
-  `update_workspace_notes` with `target=research/<slug>.md` once the
-  thesis is opened. No frontmatter changes needed (no new deterministic
+  path only, the research-note lookup and citation described in §2.5; in
+  step 5, the single `## Observations` line written back via a second
+  `update_workspace_notes` call, `target=research/stocks/<SYMBOL>.md`,
+  once the thesis is opened. No frontmatter changes (no new deterministic
   script, no new tool).
-
-- **No changes needed** to `red-flag-scan` or any other skill. Red-flag
-  findings that surface during screen-indian-stocks' own step 6 land in
-  the research note as a byproduct of that screen's Observations — not a
-  second write path from red-flag-scan itself.
 
 ## 4. Explicitly out of scope for this pass
 
-- The stage-1 "no sector attached yet" discovery gap
-  (`investing-workflow-roadmap.md` §4's candidate `idea-generation`-style
-  skill) — unrelated: this only fixes compounding for
-  `screen-indian-stocks`' existing entry point, not the entry point
-  itself.
+- The stage-1 "no sector attached yet" discovery gap — filled separately
+  by `research-discovery`/`research-discovery-gather`
+  (`docs/research-discovery-plan.md`), not this doc.
 - Numeric staleness/drift tracking across screens — see §2.3.
-- Folding red-flag-scan's own single-symbol runs (outside a screen) into
-  this file — a symbol the user commits to belongs in thesis-tracker, not
-  here; a research note stays sector/theme-scoped.
+- `screen-indian-stocks`' step 7 (optional top-5 red-flag annotation)
+  *also* seeding `research/stocks/<SYMBOL>.md` for each flagged name, so a
+  later direct `red-flag-scan` run on that name inherits the context —
+  real cross-pollination value, genuinely deferred rather than folded into
+  #58/#59: it's up to 5 extra `update_workspace_notes` calls per screen,
+  and a separate question of how it'd collide with #58's own sector-bucket
+  write for the same names. Worth its own follow-up once the core loop
+  (this doc) is live and the value is felt in practice, not built
+  speculatively now.
 - A proactive "this name keeps ranking well — want a thesis?" nudge —
   see §2.5's closing note; the bridge here is read/cite-on-request, not
   push.
 
 ## 5. Testing plan
 
-- `tests/test_engine_workspace_notes.py` — extend with the same shape of
-  cases already there for `theses/<SYMBOL>.md`: `_resolve_target` accepts
-  `research/automobile-and-auto-components.md`, rejects uppercase,
-  rejects a bad extension, rejects `../escape.md`-style traversal through
-  the new prefix; a tool-level test that a first call creates
-  `workspace/research/<slug>.md` and a second call with merged content
-  overwrites-with-merge (mirrors
-  `test_update_workspace_notes_tool_writes_to_a_thesis_file` /
-  `_overwrites_with_merged_content`).
-- Live verification once implemented: run `screen-indian-stocks` twice
-  against the same industry (different phrasing each time — e.g. "cheap
-  auto names" then "automotive sector check") a session apart, confirm
-  both land in one `research/automobile-and-auto-components.md` with two
-  Screen History rows, not two separate files. Same live-verification bar
-  thesis-tracker and staged execution were held to before being marked
-  built.
-- Bridge verification: after a screen creates a research note, open a new
-  thesis on one of its candidates and confirm (a) the thesis-creation
-  prompt cites the research note's figures with source/date rather than
-  re-deriving or silently re-fetching, and (b) the research note gains
-  exactly one new Observations line pointing at the new thesis file — run
-  it a second time on an unrelated symbol never seen in any research note
-  and confirm no citation and no spurious write happen.
+- `tests/test_engine_workspace_notes.py` — already covers `_resolve_target`
+  for `research/sectors|stocks|themes/<key>.md` (built with
+  `research-discovery-plan.md`'s implementation); no engine-level test gap
+  remains for this doc's own producers, since they write through the same
+  already-tested tool/allow-list.
+- Live verification: run `screen-indian-stocks` twice against the same
+  industry (different phrasing each time — e.g. "cheap auto names" then
+  "automotive sector check") a session apart, confirm both land in one
+  `research/sectors/automobile-and-auto-components.md` with two Screen
+  History rows, not two separate files. Same for `red-flag-scan` twice on
+  the same symbol, confirming one `research/stocks/<SYMBOL>.md` with two
+  Red-Flag Checks rows. Same live-verification bar thesis-tracker and
+  staged execution were held to before being marked built.
+- Coexistence verification: run `research-discovery` on a subject that
+  resolves to a sector already screened (or a symbol already red-flag-
+  scanned), confirm `synthesize` merges its `## Findings` entry into the
+  existing file without disturbing the `## Screen History`/`##
+  Red-Flag Checks`/`## Observations` sections already there, and vice
+  versa (run the screen/scan after a research-discovery pass already
+  populated the file).
+- Bridge verification: after a screen or scan creates a
+  `research/stocks/<SYMBOL>.md` note, open a new thesis on that symbol and
+  confirm (a) the thesis-creation prompt cites the research note's
+  figures with source/date rather than re-deriving or silently
+  re-fetching, and (b) the research note gains exactly one new
+  Observations line pointing at the new thesis file — run it a second
+  time on an unrelated symbol never seen in any research note and confirm
+  no citation and no spurious write happen.

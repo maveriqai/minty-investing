@@ -98,6 +98,50 @@ def test_save_composed_outputs_still_saves_a_non_staged_skill(tmp_path, monkeypa
     assert saved.read_text() == "the full composed brief"
 
 
+def test_save_composed_outputs_skips_a_per_key_wildcard_md_pattern(tmp_path, monkeypatch):
+    # Real bug found live 2026-08-31 (research-notes-bridge testing):
+    # thesis-tracker declares "{workspace}/theses/*.md" (issue #44) so
+    # _report_changed_files/match_changed_files recognize a real
+    # theses/<SYMBOL>.md write as accounted for — but resolve_pattern only
+    # substitutes {workspace}/{date}, leaving the "*" literal. Before this
+    # fix, that meant _save_composed_outputs wrote the turn's full reply
+    # text to a file literally named "*.md" every single new-thesis turn,
+    # instead of leaving the real per-symbol file (already written by
+    # update_workspace_notes) alone.
+    skill_dir = tmp_path / ".claude" / "skills" / "wildcard-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: wildcard-skill\n"
+        "description: test skill\n"
+        "expected_outputs:\n"
+        '  - "{workspace}/results/wildcard-skill_{date}.json"\n'
+        '  - "{workspace}/theses/*.md"\n'
+        "---\n"
+        "Body.\n"
+    )
+    _patch_roots(monkeypatch, tmp_path)
+    results_dir = tmp_path / "workspace" / "results"
+    results_dir.mkdir(parents=True)
+    json_output = results_dir / f"wildcard-skill_{_TODAY}.json"
+    json_output.write_text("{}")
+    theses_dir = tmp_path / "workspace" / "theses"
+    theses_dir.mkdir(parents=True)
+    real_thesis = theses_dir / "RELIANCE.md"
+    real_thesis.write_text("the real, curated scorecard")
+
+    _save_composed_outputs(
+        "the turn's full informal reply, not the curated scorecard",
+        [str(json_output), str(real_thesis)],
+        ["wildcard-skill"],
+        workspace_name="workspace",
+        date=_TODAY,
+    )
+
+    assert not (theses_dir / "*.md").exists()
+    assert real_thesis.read_text() == "the real, curated scorecard"
+
+
 def test_report_changed_files_omits_raw_data_captures_from_unmatched(tmp_path, monkeypatch, capsys):
     # data/account_identity.json (install-wide) and workspace/data/holdings_*.json
     # (per-skill raw captures, engine/tool_capture.py) are never a skill's own

@@ -71,7 +71,15 @@ stages:
       uppercase symbol for research/stocks/ targets. Read the target file
       first if it already exists (the workspace check in research-
       discovery's step 2 may have already surfaced it) and merge your
-      update into it — don't overwrite prior content.
+      update into it — don't overwrite prior content. Merge under a `##
+      Findings` heading specifically: append a new dated entry (today's
+      date, then this run's brief) rather than replacing the file, and
+      create the heading if the file is new. `screen-indian-stocks` and
+      `red-flag-scan` also write into these same sector/stock bucket
+      files, under their own `## Screen History` / `## Red-Flag Checks` /
+      `## Observations` headings (docs/research-notes-design.md §2.3) —
+      leave those sections untouched if present, never rewrite the whole
+      file even when it already has sections you don't recognize.
 
       Your reply text for this stage *is* the actual deliverable the user
       sees (research-discovery's step 4 relays it verbatim) — write the

@@ -173,6 +173,24 @@ def _save_composed_outputs(
     outer turn's own reply, which for a staged skill has no visibility
     into what the stages did — writing it here would silently clobber
     the correct file with a worse one (found live 2026-08-20, issue #15).
+
+    Also a no-op for any `.md` pattern that still contains a literal `*`
+    after `{workspace}`/`{date}` substitution — e.g. thesis-tracker's
+    `theses/*.md` (issue #44: declared so `_report_changed_files` below
+    recognizes a real per-symbol `theses/<SYMBOL>.md` write as accounted
+    for, via `match_changed_files`' real glob). That's a genuine
+    per-key wildcard, not a placeholder gap — `resolve_pattern` only
+    substitutes `{workspace}`/`{date}`, so writing it here means
+    `path = REPO_ROOT / resolved` targets a literal file named `*.md`
+    (found live 2026-08-31, live-testing the research-notes bridge:
+    every new-thesis turn was silently creating/overwriting
+    `workspace/theses/*.md`). Skipped rather than "resolved" to the real
+    per-symbol file for a second reason, not just the wildcard: a skill
+    with a genuine per-key `.md` file already writes its own curated
+    content via `update_workspace_notes` (thesis-tracker step 5) — this
+    function's full turn text (informal, carries the "Next:" prompt and
+    Sources footer) would be a strictly worse thing to overwrite it with,
+    even if the wildcard could be resolved correctly.
     """
     if not full_text.strip():
         return
@@ -186,7 +204,7 @@ def _save_composed_outputs(
             continue
         for pattern in md_patterns:
             resolved = skills.resolve_pattern(pattern, workspace_name=workspace_name, date=date)
-            if "{workspace}" in resolved:
+            if "{workspace}" in resolved or "*" in resolved:
                 continue
             path = skills.REPO_ROOT / resolved
             path.parent.mkdir(parents=True, exist_ok=True)

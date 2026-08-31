@@ -36,9 +36,9 @@ from the vision doc so it stays scannable as skills are added later.
 |---|---|---|---|---|
 | morning-digest | Daily portfolio/market snapshot | Holdings + index quotes + FII/DII flow + surveillance | Short markdown brief | Generated on-demand only (see vision.md §2) — reminder notifies, this generates |
 | portfolio-health-check | Portfolio-wide concentration/winners-losers | Full holdings | Structured review | |
-| red-flag-scan | Governance check on one held/watchlist name | One symbol | Flag list w/ severity | |
-| thesis-tracker | Define/update/review a thesis on one name | Symbol + user-stated thesis | Per-symbol scorecard, `workspace/theses/<SYMBOL>.md` | Adapted from anthropics/financial-services-plugins via LangAlpha — see `skills/THIRD-PARTY-NOTICES.md` |
-| screen-indian-stocks | Candidate ideas from a sector/theme | Sector/theme | Ranked candidate list, `workspace/results/screen_<industry>_<date>.json` | Nifty 500 coverage only |
+| red-flag-scan | Governance check on one held/watchlist name | One symbol | Flag list w/ severity, `results/red_flags_*.json`; durable summary merged into `workspace/research/stocks/<SYMBOL>.md` | Also reads that same file first for prior context (issue #59) |
+| thesis-tracker | Define/update/review a thesis on one name | Symbol + user-stated thesis | Per-symbol scorecard, `workspace/theses/<SYMBOL>.md` | Adapted from anthropics/financial-services-plugins via LangAlpha — see `skills/THIRD-PARTY-NOTICES.md`. New-thesis path reads/writes `research/stocks/<SYMBOL>.md` — see Design notes below |
+| screen-indian-stocks | Candidate ideas from a sector/theme | Sector/theme | Ranked candidate list, `workspace/results/screen_<industry>_<date>.json`; durable summary merged into `workspace/research/sectors/<industry-slug>.md` | Nifty 500 coverage only. Also reads that same file first for prior context (issue #58) |
 
 ## Post-v1 additions
 
@@ -178,3 +178,32 @@ without costing the model anything at runtime.
   plausible-looking correct answer from tool names alone without ever
   loading its SKILL.md content at all. Full writeup:
   `docs/research-discovery-plan.md` §0/§7.
+
+**screen-indian-stocks, red-flag-scan, thesis-tracker — the research →
+thesis bridge (issues #58/#59, 2026-08-31)**
+- Four different skills now write into the same `research/sectors|
+  stocks|themes/<key>.md` bucket files: `research-discovery-gather` (`##
+  Findings`, dated narrative), `screen-indian-stocks` (`## Screen
+  History` table + `## Observations`), `red-flag-scan` (`## Red-Flag
+  Checks` table + `## Observations`), and `thesis-tracker` (one
+  `## Observations` line, written back once a new thesis opens). Each
+  producer owns its own heading and only ever appends — never rewrites a
+  section it doesn't own — so a file that started as a `research-
+  discovery` narrative and later gets a screen or a red-flag scan doesn't
+  lose its earlier content, and vice versa. Full content-model writeup:
+  `docs/research-notes-design.md` §2.3/§2.4.
+- `thesis-tracker`'s bridge (step 2 read, step 5 write-back) targets
+  `research/stocks/<SYMBOL>.md` specifically, not `research/sectors/`,
+  because it's the one bucket keyed on the exact symbol thesis-tracker
+  always has — no `Glob`/search needed, unlike `research-discovery`'s own
+  workspace check. A symbol that only ever surfaced in a *sector* screen
+  (never individually red-flag-checked or discovery-researched) has no
+  `research/stocks/<SYMBOL>.md` yet, so the lookup finds nothing — an
+  accepted gap, not a bug (see next bullet).
+- Deliberately not built: `screen-indian-stocks`' own top-5 red-flag
+  annotation step also seeding `research/stocks/<SYMBOL>.md` for each
+  flagged name (real cross-pollination value, but a separate design
+  question about colliding with that same run's own sector-bucket write —
+  `docs/research-notes-design.md` §4), and any proactive "this name keeps
+  ranking well — want a thesis?" nudge (the bridge here is
+  read/cite-on-request, not push).

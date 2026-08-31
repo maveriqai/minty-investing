@@ -49,7 +49,19 @@ tool, never eyeballed.
 
 2. **Define or load the thesis.** Read `theses/<SYMBOL>.md` first (via
    `Read` — it may not exist yet). If it exists, this is an update, not a
-   fresh start (go to step 3). If new, capture from the user:
+   fresh start (go to step 3). If new:
+   - **Check for a prior research note first.** Read
+     `research/stocks/<SYMBOL>.md` (uppercase symbol) via `Read` — it may
+     not exist. If it does, cite what's there before asking the user for
+     pillars/risks/target: rank/screen history, P/E/ROE with source, any
+     `## Red-Flag Checks` or `## Observations` entries for this name —
+     clearly labeled as "from your research note on `<SYMBOL>`, dated
+     `<date>`," never silently folded in as if newly derived. **The user
+     still states the pillars, risks, target price, and stop-loss
+     themselves** — this is citation of already-gathered facts, not this
+     skill deriving anything, so the "target price is the user's stated
+     input" guardrail below is untouched. If no research note exists,
+     proceed without one — this lookup is a courtesy, not a requirement.
    - **Symbol / company**: NSE trading symbol (e.g. `RELIANCE`), full name.
    - **Position**: long or short. A watchlist name skips the rest of this
      bullet entirely — nothing here touches Kite until the user says they
@@ -150,6 +162,15 @@ tool, never eyeballed.
    prior scorecard, and never use `Write` for this file (the tool is the
    only correct way to save it, same as `notes.md` on every other skill).
 
+   **If this is a brand-new thesis** (step 2 took the "if new" branch) and
+   step 2 found a research note, also write one line back to it: append to
+   `research/stocks/<SYMBOL>.md`'s `## Observations` — e.g. "2026-09-01:
+   started a thesis on TATAMOTORS, see `theses/TATAMOTORS.md`" — via a
+   second `update_workspace_notes` call, `target` set to
+   `research/stocks/<SYMBOL>.md`. Skip this on an update to an existing
+   thesis, and skip it on a new thesis if step 2 found no research note —
+   never invent one to write into.
+
 6. **Never conclude the trim/hold/exit call on the user's behalf.** Present
    the scorecard and the computed move — the decision is theirs. If the
    user has previously said they're undecided on a position, don't
@@ -176,3 +197,7 @@ tool, never eyeballed.
 - A thesis should be falsifiable: track disconfirming evidence as
   rigorously as confirming evidence, and don't let conviction drift
   upward just because the price did.
+- The `research/stocks/<SYMBOL>.md` lookup/write-back (step 2/step 5) is a
+  citation courtesy, not a dependency — proceed normally with no research
+  note, and never derive a pillar, target, or stop-loss from one; those
+  stay the user's stated input.

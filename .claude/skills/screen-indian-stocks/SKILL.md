@@ -15,14 +15,14 @@ deterministic_scripts:
     args:
       - {name: industry, kind: positional, required: true, description: "Exact industry label as stored in the instruments master, e.g. 'Automobile and Auto Components' — see step 2 for the full list"}
       - {name: limit, kind: flag, flag: "--limit", required: false, description: "Max candidates to return, defaults to 25 — raise only if the user explicitly asks for a wider sweep"}
-      - {name: as_of, kind: flag, flag: "--as-of", required: false, description: "YYYY-MM-DD, defaults to today if omitted — leave this alone so it matches the fundamentals files step 5 looks for"}
+      - {name: as_of, kind: flag, flag: "--as-of", required: false, description: "YYYY-MM-DD, defaults to today if omitted — leave this alone so it matches the fundamentals files step 6 looks for"}
   - id: screen_rank
     path: scripts/screen_rank.py
     args:
       - {name: industry, kind: flag, flag: "--industry", required: true, description: "The same industry label passed to list_candidates"}
-      - {name: candidates, kind: flag, flag: "--candidates", required: true, description: "Path to the saved candidates file from step 3, e.g. data/candidates_automobile-and-auto-components_<date>.json"}
-      - {name: quotes, kind: flag, flag: "--quotes", required: false, description: "Path to the saved live-quotes envelope from step 4's one batched india_price.get_quote call, e.g. data/live_quotes_<date>.json"}
-      - {name: as_of, kind: flag, flag: "--as-of", required: false, description: "YYYY-MM-DD, defaults to today — must match whatever date list_candidates and the fundamentals fetches in step 4 actually used"}
+      - {name: candidates, kind: flag, flag: "--candidates", required: true, description: "Path to the saved candidates file from step 4, e.g. data/candidates_automobile-and-auto-components_<date>.json"}
+      - {name: quotes, kind: flag, flag: "--quotes", required: false, description: "Path to the saved live-quotes envelope from step 5's one batched india_price.get_quote call, e.g. data/live_quotes_<date>.json"}
+      - {name: as_of, kind: flag, flag: "--as-of", required: false, description: "YYYY-MM-DD, defaults to today — must match whatever date list_candidates and the fundamentals fetches in step 5 actually used"}
 ---
 
 # Screen Indian Stocks
@@ -45,7 +45,8 @@ morning-digest/portfolio-health-check/thesis-tracker require.
 1. **The workspace is already open.** The engine hands you the one active
    workspace's path before you ever see this turn (the "Active workspace:"
    note above) — there's no naming step, and no case where none is open.
-   Write into its `data/` and `results/` as documented below.
+   Write into its `data/`, `results/`, and `research/sectors/` as
+   documented below.
 
 2. **Map the theme to an industry label.** The instruments master's
    industry field uses these exact labels: Automobile and Auto Components,
@@ -59,14 +60,24 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    confirm the mapping with them rather than guessing silently — a wrong
    label returns zero candidates, not a partial match.
 
-3. **Build the candidate universe.** Call the `run_list_candidates` tool
+3. **Check for a prior research note on this sector.** Read
+   `research/sectors/<industry-slug>.md` (the same slug step 4 below
+   computes for its own filenames — lowercase, hyphens for non-alphanumeric
+   runs) via `Read` — it may not exist yet, or may already hold a
+   research-discovery finding, a previous screen's history, or both. If it
+   exists, skim its `## Findings` / `## Screen History` / `## Observations`
+   sections for anything still relevant, and lead with that in your
+   eventual reply ("Your last screen on this sector, three weeks ago,
+   flagged...") rather than presenting this as a cold start.
+
+4. **Build the candidate universe.** Call the `run_list_candidates` tool
    (not Bash) with `workspace_root` set to the exact active-workspace path
    and `industry` set to the label from step 2. Writes
    `data/candidates_<industry-slug>_<date>.json`. The 25-candidate default
    cap keeps the next step polite to yfinance — raise `limit` only if the
    user explicitly asks for a wider sweep.
 
-4. **Fetch fundamentals and quotes for every candidate.** Call
+5. **Fetch fundamentals and quotes for every candidate.** Call
    `india_price.get_fundamentals(symbol)` **and**
    `india_screener.get_fundamentals(symbol)` once each per candidate, using
    the bare NSE symbol exactly as it appears in the candidates file (no
@@ -84,9 +95,9 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    `data/live_quotes_<date>.json`), silently losing data for whichever
    candidates were only in the first batch.
 
-5. **Run the deterministic ranking.** Call the `run_screen_rank` tool
+6. **Run the deterministic ranking.** Call the `run_screen_rank` tool
    (not Bash) with `workspace_root`, `industry`, `candidates` (the exact
-   path from step 3), and `quotes` (the exact path from step 4, if you
+   path from step 4), and `quotes` (the exact path from step 5, if you
    made that call). The tool finds each candidate's fundamentals files
    itself from the candidates list and today's date — no need to pass
    fundamentals paths individually. Writes
@@ -98,7 +109,7 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    fetch error, or no usable P/E/ROE from either source, each with a
    reason — report these too, don't silently drop them).
 
-6. **Optionally red-flag-annotate the top 5.** For the top 5 entries in
+7. **Optionally red-flag-annotate the top 5.** For the top 5 entries in
    `ranked`, fetch whatever announcements/surveillance/news you can for
    those specific symbols, then call the `run_red_flag_check` tool for
    each (it's already available regardless of which skill's turn this is
@@ -106,20 +117,40 @@ morning-digest/portfolio-health-check/thesis-tracker require.
    one place these two skills compound. Skip this step if the user wants a
    fast screen rather than a deep one; say explicitly which you did.
 
-7. **One broader news call for context:**
+8. **One broader news call for context:**
    `india_news.get_news("<theme phrase>", limit=10)` — sector/theme
    headlines, not per-candidate. Saved automatically to
    `data/news_<theme-phrase>_<date>.json`.
 
-8. **Compose the brief:** state the filter applied (industry label,
+9. **Compose the brief:** state the filter applied (industry label,
    candidate count, cap), then candidate cards for the top of `ranked`
    (symbol, name, P/E, ROE with its `roe_source` noted — e.g. "ROE 13.1%
    (Screener.in)" — leverage flag, last price/day change, any red-flag
-   annotations from step 6), then the `excluded` list with reasons if the
+   annotations from step 7), then the `excluded` list with reasons if the
    user asks why a name they expected isn't ranked. Don't write your own
    Sources footer or SEBI disclaimer — the engine appends both
    automatically once your reply text is complete. Writing one yourself
    just duplicates it (issue #27).
+
+10. **Update the sector research note.** Read `research/sectors/
+    <industry-slug>.md` again if step 3 hasn't already captured its
+    content this turn (same slug, no need to recompute it — reuse the
+    filename `run_list_candidates`/`run_screen_rank` already returned).
+    Merge in a new dated entry:
+    - Append a row to a `## Screen History` table (date, candidate count,
+      top-5 summary — symbol, P/E, ROE with `roe_source`, link to this
+      run's `results/screen_<industry-slug>_<date>.json`); create the
+      table if the file has none yet.
+    - Append a dated bullet to `## Observations` (create if absent) —
+      anything durable and qualitative: a red flag surfaced in step 7, a
+      notable exclusion, valuation context worth remembering next time.
+    Leave any `## Findings` section from a prior `research-discovery` run
+    untouched — never overwrite existing content, only append (same
+    read-merge-rewrite discipline `thesis-tracker`'s own scorecard update
+    follows). Call `update_workspace_notes` with `target` set to
+    `research/sectors/<industry-slug>.md` and `content` set to the full
+    merged file. This is a durable summary only — the full ranked table
+    stays in `results/`, which is `results/`'s job, not this file's.
 
 ## Guardrails
 
@@ -146,3 +177,8 @@ morning-digest/portfolio-health-check/thesis-tracker require.
   candidate's `screener_roe_pct` coming back missing may just mean
   Screener's page layout changed for that name, not that the company lacks
   the data.
+- `research/sectors/<slug>.md` is a durable summary only, written via
+  `update_workspace_notes` and never `Write` — never overwrite it, never
+  put the full ranked/excluded table there (that's `results/`'s job), and
+  never touch a `## Findings` section a `research-discovery` run may have
+  already written there.

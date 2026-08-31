@@ -31,12 +31,22 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
 1. **The workspace is already open.** The engine hands you the one active
    workspace's path before you ever see this turn (the "Active workspace:"
    note above) — there's no naming step, and no case where none is open.
-   Read/write its `data/`, `results/`, `notes.md` as documented below.
+   Read/write its `data/`, `results/`, `research/stocks/` as documented
+   below.
 
 2. **Resolve the symbol.** `india_price.resolve_symbol` if the user gave a
    company name rather than an exact NSE trading symbol.
 
-3. **Pull the six inputs**, one call each — the engine automatically saves
+3. **Check for a prior research note on this symbol.** Read
+   `research/stocks/<SYMBOL>.md` (uppercase, the resolved symbol from step
+   2) via `Read` — it may not exist yet, or may already hold a
+   research-discovery finding, a previous scan's history, or both. If it
+   exists, skim its `## Findings` / `## Red-Flag Checks` / `##
+   Observations` sections for anything still relevant, and lead with that
+   in your eventual reply ("Your last check on this name, three weeks ago,
+   found...") rather than presenting this as a cold start.
+
+4. **Pull the six inputs**, one call each — the engine automatically saves
    each tool's raw result to the workspace's `data/` as soon as the call
    returns, so there's no separate save step:
    - `india_filings.get_shareholding_pattern(symbol)` →
@@ -63,7 +73,7 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
      `data/fundamentals_<SYMBOL>_<date>.json`
    - `india_screener.get_fundamentals(symbol)` →
      `data/fundamentals_screener_<SYMBOL>_<date>.json` — its multi-year ROE
-     trend feeds a real check the yfinance fundamentals alone can't (step 4:
+     trend feeds a real check the yfinance fundamentals alone can't (step 5:
      a sharp last-year ROE drop vs. the 3-year average). Screener has no
      markup-stability contract (docs/screener-integration-design.md §5) —
      a missing/errored result here is expected sometimes, same as the
@@ -73,11 +83,11 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    expected (NSE outages, thin small-cap coverage, a Screener block), not a
    reason to stop. Missing inputs just skip their checks in the next step.
 
-4. **Run the deterministic scan** by calling the `run_red_flag_check` tool
+5. **Run the deterministic scan** by calling the `run_red_flag_check` tool
    — not Bash — with `workspace_root` set to the exact active-workspace
    path, `symbol`, and whichever of `shareholding`/`surveillance_asm`/
    `surveillance_gsm`/`announcements`/`news`/`fundamentals`/
-   `fundamentals_screener` step 3 actually fetched, pointed at the exact
+   `fundamentals_screener` step 4 actually fetched, pointed at the exact
    `data/<kind>_<SYMBOL>_<date>.json` path documented there. Omit any input
    that failed or wasn't called — the script handles missing inputs by
    skipping that check, not by crashing. The tool runs the script itself
@@ -85,7 +95,7 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    `flag_count`, `checks_performed`, `checks_skipped`, returning that same
    JSON to you.
 
-5. **Compose the brief from the script's output, not from re-reading the
+6. **Compose the brief from the script's output, not from re-reading the
    raw tool data.** For each flag: state the category and quote the
    evidence field verbatim — don't editorialize beyond what the evidence
    says. If `checks_skipped` is non-empty, disclose which checks couldn't
@@ -106,7 +116,22 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    a verdict, and it can trip for a genuinely one-off bad year as easily as
    real deterioration.
 
-6. **Don't write your own Sources footer or SEBI disclaimer.** The engine
+7. **Update the stock research note.** Read `research/stocks/<SYMBOL>.md`
+   again if step 3 hasn't already captured its content this turn. Merge in
+   a new dated entry:
+   - Append a row to a `## Red-Flag Checks` table (date, `flag_count`, a
+     short list of flag categories or "none", link to this run's
+     `results/red_flags_<SYMBOL>_<date>.json`); create the table if the
+     file has none yet.
+   - Append a dated bullet to `## Observations` (create if absent) — the
+     flags found (or "clean"), and any notable context worth remembering
+     next time.
+   Leave any `## Findings` section from a prior `research-discovery` run
+   untouched — never overwrite existing content, only append. Call
+   `update_workspace_notes` with `target` set to `research/stocks/
+   <SYMBOL>.md` and `content` set to the full merged file.
+
+8. **Don't write your own Sources footer or SEBI disclaimer.** The engine
    appends both automatically — built from whatever was actually captured
    this turn — once your reply text is complete. Writing one yourself just
    duplicates it (issue #27).
@@ -124,3 +149,8 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
   scan supports.
 - Surveillance-list membership (ASM/GSM) is a real regulatory fact, not a
   judgment call — always flag it if present, never soften or omit it.
+- `research/stocks/<SYMBOL>.md` is a durable summary only, written via
+  `update_workspace_notes` and never `Write` — never overwrite it, never
+  put the full flags/evidence payload there (that's `results/`'s job), and
+  never touch a `## Findings` section a `research-discovery` run may have
+  already written there.
