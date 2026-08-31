@@ -95,10 +95,14 @@ per-topic, not named — a real single directory (`docs/next-phase-plan.md`
 §4, decided after live dogfooding showed naming was unused friction).
 `workspace/notes.md` holds durable findings + a `## Preferences` section;
 `workspace/theses/<SYMBOL>.md` is the one per-symbol exception
-(thesis-tracker reads/merges/rewrites it). Everything else
-(`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
-`screen-indian-stocks`) writes independent, date-stamped files into
-`workspace/results/`, never edited after the fact — raw tool captures go to
+(thesis-tracker reads/merges/rewrites it), and
+`workspace/research/sectors|stocks|themes/<key>.md` (added with
+research-discovery, `docs/research-discovery-plan.md`) is the same kind
+of read-merge-rewrite exception, keyed by subject instead of symbol.
+Everything else (`morning-digest`, `portfolio-health-check`,
+`red-flag-scan`, `screen-indian-stocks`) writes independent, date-stamped
+files into `workspace/results/`, never edited after the fact — raw tool
+captures go to
 `workspace/data/`, auto-captured verbatim by the engine
 (`engine/tool_capture.py`) and never hand-authored or patched by the model
 via `Write` — a failed, corrupted, or oversized capture is reported as a

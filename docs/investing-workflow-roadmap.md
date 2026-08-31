@@ -54,15 +54,20 @@ below means both at once unless noted.
 |---|---|---|
 | Theme/sector → candidates | `screen-indian-stocks` (P/E + ROE rank over a named industry) | `idea-generation` ("systematic stock screening... thematic research... triggers on 'what looks interesting', 'pitch me something'") |
 | Theme → landscape report | — (nothing) | `sector-overview` (full industry/competitive-landscape report) |
+| Unshaped hunch → scoped research | `research-discovery` + `research-discovery-gather` (clarifies if genuinely ambiguous, checks the workspace, gathers up to 6 angles, files to `research/sectors\|stocks\|themes/<key>.md`) | `idea-generation` |
 
-Gap: Minty's entry point to stage 1 requires the user to already have a
-named sector or theme in hand. There's no skill for the looser starting
-point in the user's own framing above — "I saw a headline," "someone told
-me," a vague hunch with no sector attached yet. `idea-generation`'s
-trigger list ("what looks interesting," "pitch me something") is aimed
-exactly at that looser case. Whether that's worth a dedicated skill or a
-broadened `screen-indian-stocks` is an open question, not a decision made
-here.
+**Filled, 2026-08-31** (was the gap this section originally named):
+Minty's entry point to stage 1 used to require the user to already have a
+named sector or theme in hand — "I saw a headline," "someone told me," a
+vague hunch with no sector attached yet had nowhere to go.
+`research-discovery` is that entry point now — see
+`docs/research-discovery-plan.md` for the design and
+`docs/research-discovery-experience.md` for the product framing. It's a
+genuinely separate skill, not a broadened `screen-indian-stocks` (the
+"open question" this section originally left unresolved) — `screen-
+indian-stocks` still owns the already-crisp "screen sector X" case
+unchanged; `research-discovery` owns the case where the user doesn't yet
+know if there's even a sector in play.
 
 ### Stage 2 — Thesis
 
@@ -147,25 +152,27 @@ Surfaced by the stage-by-stage comparison above. Listed here so the gap
 is visible next time this doc is read — filing an issue for one of these
 is a future decision, not implied by its presence in this list:
 
-- A looser stage-1 discovery skill (or a broadened `screen-indian-stocks`)
-  for "I saw a headline" / "someone told me" starting points with no
-  sector attached yet — upstream's `idea-generation`.
+- ~~A looser stage-1 discovery skill... for "I saw a headline" / "someone
+  told me" starting points~~ — **built 2026-08-31** as `research-discovery`
+  / `research-discovery-gather`, not a broadened `screen-indian-stocks`.
+  See §2's Stage 1 table above and `docs/research-discovery-plan.md`.
 - A portfolio-wide catalyst calendar, separate from thesis-tracker's own
   per-symbol scorecard — upstream's `catalyst-calendar`.
 - A pre-event prep skill for a name already on a thesis or held — "what
   to watch for" before results/an AGM/a regulatory decision lands —
   upstream's `earnings-preview`.
-- Macro/market-level research with no symbol and no single sector at all
-  — "what's driving FII outflows this month," "is a rate cut coming."
-  Distinct from the cross-sector *stock-screening* gap (issue #57):
-  `morning-digest` already touches FII/DII flow and index moves as a
-  daily snapshot, but nothing persists a compounding, narrative research
-  note about macro questions the way `theses/<SYMBOL>.md` or (once built)
-  `research/<industry-slug>.md` do for their own subjects. Lighter-weight
-  than #57 for now, deliberately not filed as an issue yet — there's no
-  producing skill or artifact to point at, only the gap itself. Surfaced
-  2026-08-30 alongside issues #56/#57; revisit once something actually
-  generates macro-research content worth compounding.
+- ~~Macro/market-level research with no symbol and no single sector at
+  all — "what's driving FII outflows this month," "is a rate cut
+  coming."~~ — **also covered by `research-discovery`**, live-verified
+  2026-08-31: "what's driving the market down this week" (no
+  symbol/sector at all) correctly skipped the clarifying question, ran a
+  6-angle pass, and filed `research/themes/market-down-this-week.md`.
+  This wasn't purpose-built for the macro case specifically — it fell out
+  of the same general-purpose design that handles the cross-sector
+  *stock-screening* gap (issue #57) too, which `research-discovery` does
+  not replace (screening still needs `screen-indian-stocks`'s ranked
+  candidate output, not a narrative brief) but now sits alongside for the
+  "which sector even" question upstream of a screen.
 
 Explicitly not proposing a heavy `initiating-coverage`-style
 valuation-derivation skill here — that conflicts with the project's own

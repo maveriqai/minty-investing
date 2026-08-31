@@ -263,12 +263,15 @@ decided after live dogfooding surfaced "what is a workspace and why do I
 need one" as real friction, and after real usage showed no named
 workspace beyond the default was ever used for what naming was built for).
 `workspace/notes.md` holds durable findings and a `## Preferences`
-section; `workspace/theses/<SYMBOL>.md` (one file per symbol) is the one
-exception to "flat" — thesis-tracker reads, merges, and rewrites a thesis,
-the one place cross-symbol collision is a real risk. Everything else
-(`morning-digest`, `portfolio-health-check`, `red-flag-scan`,
-`screen-indian-stocks`) writes independent, date-stamped files straight
-into `workspace/results/`, never edited after the fact.
+section; `workspace/theses/<SYMBOL>.md` (one file per symbol) and
+`workspace/research/sectors|stocks|themes/<key>.md` (added with
+research-discovery, one file per subject — see
+`docs/research-discovery-plan.md`) are the exceptions to "flat" —
+read-merge-rewrite targets where cross-subject collision is a real risk,
+not independent per-run files. Everything else (`morning-digest`,
+`portfolio-health-check`, `red-flag-scan`, `screen-indian-stocks`) writes
+independent, date-stamped files straight into `workspace/results/`, never
+edited after the fact.
 `workspace/sessions/<timestamp>.md` (issue #13) holds one raw transcript
 per REPL run, every turn engine-appended. `workspace/memory_candidates.md`
 (issue #14) is an append-then-clear staging file — see the non-goals
@@ -373,6 +376,13 @@ scoped decision:
   portfolio-health-check, red-flag-scan, thesis-tracker,
   screen-indian-stocks) run successfully against a real connected Zerodha
   account, with grounded output and a Sources footer on each.
+- **Post-v1 addition, live-verified 2026-08-31**: research-discovery +
+  research-discovery-gather (`docs/research-discovery-plan.md`) — the
+  open-ended research front door named as a stage-1 gap in
+  `docs/investing-workflow-roadmap.md` §4. Not one of the original five;
+  called out separately since it's the first skill built after v1 and the
+  first to use staged execution's `dynamic: true` stage-expansion
+  primitive.
 
 **Track 2 — contributor surface:**
 - A person who isn't the owner can clone the repo, follow Getting

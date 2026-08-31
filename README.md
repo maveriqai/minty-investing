@@ -182,6 +182,15 @@ Three steps, in order, from a fresh install to your first real result.
 - **screen-indian-stocks** — "find undervalued auto sector stocks,"
   "screen IT services for quality names" — sector/theme candidate
   discovery ranked on valuation/quality, Nifty 500 coverage only.
+- **research-discovery** — a headline, a tip, a vague hunch, or a
+  cross-cutting question with no single sector/symbol yet ("what's
+  driving FII outflows," "PLI scheme beneficiaries," "should I be
+  worried about X given the rupee"). Asks one scoping question only if
+  genuinely ambiguous, checks the workspace for prior research first,
+  then runs a multi-angle pass and files the result to
+  `workspace/research/sectors|stocks|themes/<key>.md` — the compounding
+  front door for research that doesn't already know its own shape (see
+  `docs/research-discovery-plan.md`).
 
 Every output is grounded in real tool calls (never model memory), ends
 with a Sources footer, and carries the SEBI disclaimer. Minty is

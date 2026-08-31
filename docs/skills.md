@@ -40,6 +40,17 @@ from the vision doc so it stays scannable as skills are added later.
 | thesis-tracker | Define/update/review a thesis on one name | Symbol + user-stated thesis | Per-symbol scorecard, `workspace/theses/<SYMBOL>.md` | Adapted from anthropics/financial-services-plugins via LangAlpha — see `skills/THIRD-PARTY-NOTICES.md` |
 | screen-indian-stocks | Candidate ideas from a sector/theme | Sector/theme | Ranked candidate list, `workspace/results/screen_<industry>_<date>.json` | Nifty 500 coverage only |
 
+## Post-v1 additions
+
+| Skill | Trigger | Input | Output | Notes |
+|---|---|---|---|---|
+| research-discovery | Open-ended research with no single sector/symbol yet — a headline, a tip, a vague hunch, a cross-cutting question | An unshaped request; clarifies once if genuinely ambiguous | Handoff plan file only — `data/research_plan_<slug>_<date>.json` | Plain, native front door; never produces the final brief itself |
+| research-discovery-gather | Never natively invoked — only via `run_staged_research-discovery-gather`, called by research-discovery's own step 4 | The plan file research-discovery just wrote | Coherent multi-angle brief, filed to `workspace/research/sectors\|stocks\|themes/<key>.md` | Staged-only: a `dynamic: true` stage expands the plan's angles into one fresh session each (capped at `max_instances`), then a `critical: true` `synthesize` stage composes and files the result — see `docs/research-discovery-plan.md` §3-4 |
+
+Two skills, not one — forced by a real mechanical finding (a staged run
+can neither pause for the user nor receive per-invocation content, see
+`docs/research-discovery-plan.md` §1), not a stylistic choice.
+
 ## Dropped
 
 - **refresh-holdings** — superseded by the manual-trigger decision in
@@ -133,3 +144,37 @@ without costing the model anything at runtime.
   because a full account's holdings response can exceed the size a raw
   tool result can carry (issue #46) — `fetch_holdings` fetches in-process
   and writes straight to disk specifically to avoid that.
+
+**research-discovery, research-discovery-gather**
+- Step 2's (research-discovery) and `synthesize`'s (research-discovery-
+  gather) explicit "never combine a subdirectory into the `Glob` pattern
+  string" instruction looks like unnecessary caution in the prose, but
+  it's load-bearing: live-verified 2026-08-31, Claude Code's `Glob` tool
+  silently returns zero matches when `path` is a directory and `pattern`
+  also contains a subdirectory segment (e.g.
+  `pattern="data/research_finding_*.json"`, `path="<workspace>"`) — a
+  real run's `synthesize` stage failed its critical check twice in a row
+  this way, falsely reporting an empty `data/` directory that in fact had
+  all 6 finding files sitting in it. Only a bare filename `pattern` with
+  `path` set directly to the target directory (or a fully-absolute
+  `pattern` with no `path` at all) actually matched. Root cause: the
+  original instructions used `{workspace}/data/...` placeholder syntax
+  copied from the `needs`/`produces` templating convention, but
+  `engine/staged_skills.py`'s `_build_stage_prompt` only resolves
+  `{workspace}`/`{date}` inside `needs`/`produces` lists, never inside
+  prose `instructions:` text — left to interpret the literal placeholder
+  itself, the model constructed the exact Glob shape that triggers the
+  bug. Full writeup: `docs/research-discovery-plan.md` §7.
+- `builtin_tools` (`engine/config.py`) didn't include `"Skill"` until
+  2026-08-31 — found live-testing this skill specifically, but it was a
+  project-wide gap affecting every native (non-staged) skill's ability to
+  actually be invoked via Claude Code's own `Skill` tool, not just this
+  one. `ClaudeAgentOptions.tools` gates `Skill` itself, a separate field
+  from `skills=[...]`'s own auto-added `allowed_tools` entry (permission
+  auto-approval, not availability). Stayed invisible until a skill whose
+  real value isn't reconstructable from tool names alone (this one's
+  workspace check, structured planning, exact hand-off filename) made it
+  visible — a skill like red-flag-scan can sometimes produce a
+  plausible-looking correct answer from tool names alone without ever
+  loading its SKILL.md content at all. Full writeup:
+  `docs/research-discovery-plan.md` §0/§7.
