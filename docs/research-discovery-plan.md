@@ -396,6 +396,44 @@ no new tool needed just for the plan-file handoff.
     tool names alone (workspace check, structured planning, an exact
     hand-off filename) made it visible. Fixed:
     `builtin_tools` now defaults to `["Read", "Write", "Glob", "Skill"]`.
+  - **Second live run (real `workspace/`, not a sandbox) found and fixed
+    a real reliability bug**: the same request, run against the actual
+    production workspace, correctly clarified and correctly ran all 6
+    gather instances — but `synthesize` failed **CRITICAL — expected
+    output missing** on both the first attempt and an automatic retry
+    (the model re-triggered the whole staged run a second time on its
+    own initiative), reporting "the workspace's `data/` directory has no
+    files at all." That claim was false — all 6 finding files and the
+    plan file were genuinely present on disk (confirmed directly:
+    `ls workspace/data/research_finding_*.json` showed all 6). Isolated
+    by reproducing `synthesize`'s exact Glob call outside the pipeline:
+    **Claude Code's `Glob` tool silently returns zero matches when `path`
+    is set to a directory and `pattern` also contains a subdirectory
+    segment** (e.g. `pattern="data/research_finding_*.json"`,
+    `path="<workspace>"`) — confirmed by testing four call shapes
+    directly; only a bare filename `pattern` with `path` pointing straight
+    at the target directory, or a fully-absolute `pattern` with no `path`
+    at all, actually matched. Root cause in this plan's own instructions:
+    `synthesize`'s `instructions:` text used `{workspace}/data/...`
+    literal placeholder syntax copied from the *structured*
+    `needs`/`produces` templating convention — but `_build_stage_prompt`
+    (`engine/staged_skills.py`) only resolves `{workspace}`/`{date}`
+    inside `needs`/`produces` lists, never inside prose `instructions:`
+    text (`morning-digest`'s own stage instructions never used this
+    placeholder in prose for exactly this reason — plain workspace-
+    relative paths only). Left to interpret the literal placeholder
+    itself, the model constructed a `path`+multi-segment-`pattern` Glob
+    call that triggers the tool bug above. Fixed in both `research-
+    discovery/SKILL.md` (step 2's workspace check) and `research-
+    discovery-gather/SKILL.md` (`synthesize`'s instructions): explicit,
+    prescriptive guidance to always pass a bare filename `pattern` with
+    `path` set directly to the target subdirectory, never a combined
+    `<subdir>/<pattern>` string. Live-reverified directly (not just
+    re-read): re-ran only the fixed `synthesize` stage in isolation
+    against the real, already-existing finding files from the failed
+    run (no need to re-spend on the 6 gather instances) — found and read
+    all 6, composed a coherent brief, and correctly wrote
+    `workspace/research/themes/pli-semiconductors.md` for real.
   - Not yet exercised live: already-researched subjects leading with
     what's known (needs a second pass on the same subject), and
     angle-overflow stating what got deprioritized (needs a request with

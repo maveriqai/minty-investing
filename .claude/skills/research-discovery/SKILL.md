@@ -38,15 +38,23 @@ reasoning as `screen-indian-stocks`.
    proceed on your own best-reasoned interpretation and state plainly
    which interpretation you used — don't ask a second time.
 
-2. **Check the workspace before doing any fresh work.** Use `Glob` to list
-   `research/sectors/*.md`, `research/stocks/*.md`, `research/themes/*.md`,
-   and `theses/*.md`, then `Read` any file that looks relevant to this
-   request's subject. Also `Read` `notes.md` if it exists. If something
-   relevant is already there, lead with it in your eventual reply ("You
-   already have a research note on this from three weeks ago — here's
-   what's changed") rather than silently re-running everything from
-   scratch — carry forward whatever's still current as this run's
-   `already_known` (step 4).
+2. **Check the workspace before doing any fresh work.** For each of the
+   workspace's `theses`, `research/sectors`, `research/stocks`, and
+   `research/themes` subdirectories, call `Glob` with `path` set to that
+   exact subdirectory (the active workspace path from the note above, plus
+   `/theses`, `/research/sectors`, etc.) and `pattern` set to the bare
+   filename glob `*.md` — **never combine the subdirectory into the
+   pattern string itself** (e.g. `pattern="research/sectors/*.md"` with
+   `path` set to the workspace root). That combination has been live-
+   verified to silently return zero matches even when matching files
+   exist — `path` must point directly at the target directory, `pattern`
+   must be filename-only. Then `Read` any file the Glob turned up that
+   looks relevant to this request's subject, and also `Read` `notes.md` if
+   it exists. If something relevant is already there, lead with it in your
+   eventual reply ("You already have a research note on this from three
+   weeks ago — here's what's changed") rather than silently re-running
+   everything from scratch — carry forward whatever's still current as
+   this run's `already_known` (step 4).
 
 3. **Identify up to 6 fresh angles.** For each angle worth pursuing that
    step 2 didn't already answer, note: a short id (lowercase, hyphenated,

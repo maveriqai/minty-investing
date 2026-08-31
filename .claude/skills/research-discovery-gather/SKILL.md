@@ -33,14 +33,25 @@ stages:
   - id: synthesize
     critical: true
     instructions: |
-      This is the final stage of a research-discovery run. Glob for
-      {workspace}/data/research_finding_*_{date}.json yourself (the exact
-      count varies run to run — don't assume a fixed number, and don't
-      rely on any needs/produces listing above naming them individually)
-      and Read each one. Also Glob for and Read the plan file itself,
-      {workspace}/data/research_plan_*_{date}.json, for its "request" and
-      "already_known" fields — you need the original request in your own
-      words to know what this brief is actually answering.
+      This is the final stage of a research-discovery run. Find this
+      run's research_finding_*.json and research_plan_*.json files
+      yourself (the exact finding count varies run to run — don't assume
+      a fixed number, and don't rely on any needs/produces listing above
+      naming them individually): call Glob with `path` set to the active
+      workspace's own `data` subdirectory (the workspace path is in the
+      "[Active workspace: ...]" note above this text — append `/data` to
+      it yourself) and `pattern` set to the bare filename glob
+      `research_finding_*.json` — **do not combine the `data/` segment
+      into the pattern string itself** (e.g. `pattern="data/research_finding_*.json"`
+      with `path` set to the workspace root). That combination, and a
+      relative pattern with no `path` argument at all, have both been
+      live-verified to silently return zero matches even when the files
+      exist — `path` must point directly at the `data` directory, `pattern`
+      must be filename-only. Read every file that Glob call returns. Then
+      do the same for the plan file — `path` = the workspace's `data`
+      directory, `pattern` = `research_plan_*.json` — and Read it for its
+      "request" and "already_known" fields; you need the original request
+      in your own words to know what this brief is actually answering.
 
       Compose one coherent brief, organized by angle (not five findings
       concatenated with headers) — for each angle, state what it answered,
