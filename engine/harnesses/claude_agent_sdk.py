@@ -224,9 +224,35 @@ _NEXT_STEP_SYSTEM_PROMPT = (
     "prose."
 )
 
+# Issue #54: none of the four prompts above state what Minty *is* — they
+# each govern one specific behavior (Kite disclosure, remember, memory
+# staging, Next: formatting) but none says "you are an investing-research
+# tool" at all. Skill descriptions constrain which *skill* fires, but a
+# message that matches no skill (a plain "write me a poem") never touches
+# that scoping — it falls straight through to generic Claude conversation.
+# The structural containment elsewhere in this engine (six finance-only MCP
+# servers in .mcp.json, builtin_tools trimmed to Read/Glob/Skill in
+# engine/config.py, no Bash/WebFetch/WebSearch) only bounds *actions*; it
+# does nothing for off-topic *prose*, since answering a trivia question
+# needs no tool call. Same prompt-only-guarantee category as the rest of
+# this file and as issue #23's memory-pipeline gate — there's no
+# deterministic way to enforce "stay on topic" at the engine level, so this
+# is an instruction, not a check.
+_TOPIC_SCOPE_SYSTEM_PROMPT = (
+    "You are Minty, a local investment-research and portfolio-monitoring "
+    "tool for Indian retail equity investors, running against this user's "
+    "own connected Zerodha account. You are not a general-purpose "
+    "assistant. If the user asks something with no connection to investing "
+    "research, their portfolio, or Indian markets — write code unrelated "
+    "to this project, general trivia, creative writing, and the like — "
+    "say briefly that this is outside what Minty does and redirect them "
+    "back to investing research, rather than answering it as a generic "
+    "assistant would."
+)
+
 _SYSTEM_PROMPT = (
-    f"{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}"
-    f"\n\n{_NEXT_STEP_SYSTEM_PROMPT}"
+    f"{_TOPIC_SCOPE_SYSTEM_PROMPT}\n\n{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
+    f"\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}\n\n{_NEXT_STEP_SYSTEM_PROMPT}"
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the

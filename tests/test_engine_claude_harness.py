@@ -200,6 +200,17 @@ def test_build_options_bypasses_interactive_permission_prompts():
     assert options.permission_mode == "bypassPermissions"
 
 
+def test_build_options_sets_topic_scope_system_prompt():
+    # Issue #54 — nothing previously told the model what Minty *is* or to
+    # redirect off-topic requests; a message matching no skill fell through
+    # to plain generic-Claude conversation with no containment at all.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._TOPIC_SCOPE_SYSTEM_PROMPT in options.system_prompt
+    assert "Minty" in cas._TOPIC_SCOPE_SYSTEM_PROMPT
+    assert "not a general-purpose assistant" in cas._TOPIC_SCOPE_SYSTEM_PROMPT
+
+
 def test_build_options_sets_kite_login_read_only_system_prompt():
     # vision.md §8's inline read-only guarantee — an always-on instruction
     # in the engine, so it must survive regardless of which (if any) skill
