@@ -128,6 +128,21 @@ def build_tool_config(
         # `india_filings.get_filing_document` is the governed replacement.
         # Same "structural, not policy" bar CLAUDE.md sets for order
         # execution — removing the tool closes the whole class at once.
-        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Write", "Glob", "Skill"],
+        #
+        # No Write either (issue #55, fixed 2026-09-01): grepped every
+        # Read/Write/Glob mention across every `.claude/skills/*/SKILL.md`
+        # file and found zero legitimate use of the raw `Write` tool — every
+        # mention is an explicit instruction not to use it ("never Write,
+        # use update_workspace_notes instead"; "a Write call there would
+        # [corrupt captured data]"). Every real file write already goes
+        # through a deterministic script (engine/skill_tools.py, writing
+        # results/*.json server-side) or a dedicated MCP tool
+        # (update_workspace_notes, stage_memory_candidate) — Write was never
+        # load-bearing, same as Bash above. Read/Glob stay (genuinely used
+        # to read prior notes/results before merging or narrating), but are
+        # scoped to workspace/.dev-workspaces/ by a new PreToolUse hook
+        # (engine/harnesses/claude_agent_sdk.py's `_deny_outside_workspace`)
+        # rather than removed — unlike Write, they have real call sites.
+        builtin_tools=builtin_tools if builtin_tools is not None else ["Read", "Glob", "Skill"],
         max_buffer_size=max_buffer_size if max_buffer_size is not None else _MAX_BUFFER_SIZE,
     )

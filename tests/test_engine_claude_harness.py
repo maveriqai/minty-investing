@@ -14,6 +14,7 @@ from engine.guardrail import ORDER_TOOL_NAMES, GuardrailPolicy
 from engine.harnesses import claude_agent_sdk as cas
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.kite_identity import IdentityGuardState
+from engine.workspace import DEV_WORKSPACES_ROOT, REPO_ROOT, WORKSPACE_ROOT
 
 FAKE_MCP_SERVERS = {
     "kite_gateway": {"command": "uv", "args": ["run", "python", "mcp/kite_gateway/server.py"]},
@@ -241,8 +242,9 @@ def test_build_options_sets_next_step_system_prompt():
 
 
 def test_build_options_wires_a_pretooluse_hook():
-    # Three PreToolUse hooks: order-tool denial, Bash-scope denial, and
-    # the identity-mismatch deny hook (issue #19). Tool-call budgets
+    # Four PreToolUse hooks: order-tool denial, Bash-scope denial, the
+    # identity-mismatch deny hook (issue #19), and the Read/Glob
+    # workspace-scope deny hook (issue #55). Tool-call budgets
     # (engine/tool_budget.py) are audit-only — counted inside
     # ClaudeSession.send() itself, not a PreToolUse hook — so they add no
     # extra hook here. See tool_budget.py's own docstring for why a hard
@@ -252,7 +254,7 @@ def test_build_options_wires_a_pretooluse_hook():
 
     assert "PreToolUse" in options.hooks
     assert len(options.hooks["PreToolUse"]) == 1
-    assert len(options.hooks["PreToolUse"][0].hooks) == 3
+    assert len(options.hooks["PreToolUse"][0].hooks) == 4
 
 
 def test_build_options_wires_a_posttooluse_hook_for_identity_recording():
@@ -712,6 +714,91 @@ def test_bash_scope_hook_ignores_non_bash_tools_and_is_noop_when_empty():
     assert result2 == {}
 
 
+def test_filesystem_scope_hook_allows_read_and_glob_inside_the_workspace_roots():
+    read_result = asyncio.run(
+        cas._deny_outside_workspace(
+            {"tool_name": "Read", "tool_input": {"file_path": str(WORKSPACE_ROOT / "notes.md")}},
+            "tool-use-1",
+            {},
+        )
+    )
+    assert read_result == {}
+
+    glob_result = asyncio.run(
+        cas._deny_outside_workspace(
+            {"tool_name": "Glob", "tool_input": {"pattern": "*.json", "path": str(WORKSPACE_ROOT / "data")}},
+            "tool-use-2",
+            {},
+        )
+    )
+    assert glob_result == {}
+
+    dev_sandbox_result = asyncio.run(
+        cas._deny_outside_workspace(
+            {"tool_name": "Read", "tool_input": {"file_path": str(DEV_WORKSPACES_ROOT / "test" / "notes.md")}},
+            "tool-use-3",
+            {},
+        )
+    )
+    assert dev_sandbox_result == {}
+
+
+def test_filesystem_scope_hook_denies_read_outside_the_repo():
+    result = asyncio.run(
+        cas._deny_outside_workspace(
+            {"tool_name": "Read", "tool_input": {"file_path": "/etc/passwd"}}, "tool-use-1", {}
+        )
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_filesystem_scope_hook_denies_read_of_the_kite_session_and_identity_files():
+    # The regression case pivot 2 exists for (issue #55): REPO_ROOT/data/
+    # holds the live Kite session token (kite_gateway_session_id.json,
+    # written 0o600 by mcp/kite_gateway/server.py) and the account-identity
+    # anchor (account_identity.json) — both deliberately outside workspace/
+    # per CLAUDE.md. A repo-root-wide boundary would still let Read pull
+    # the session token directly; this proves the workspace-only boundary
+    # actually excludes it, not just the generic "outside the repo" case.
+    for filename in ("kite_gateway_session_id.json", "account_identity.json"):
+        result = asyncio.run(
+            cas._deny_outside_workspace(
+                {"tool_name": "Read", "tool_input": {"file_path": str(REPO_ROOT / "data" / filename)}},
+                "tool-use-1",
+                {},
+            )
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_filesystem_scope_hook_denies_glob_path_outside_the_workspace_roots():
+    result = asyncio.run(
+        cas._deny_outside_workspace(
+            {"tool_name": "Glob", "tool_input": {"pattern": "*.py", "path": str(REPO_ROOT / "engine")}},
+            "tool-use-1",
+            {},
+        )
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_filesystem_scope_hook_denies_glob_with_no_path_arg():
+    # No "omitted path means cwd, so allow" carve-out — every real Glob
+    # call in the skills explicitly sets `path`; an omitted path resolves
+    # to cwd (REPO_ROOT), which is outside the workspace roots and denied
+    # like anything else outside them.
+    result = asyncio.run(
+        cas._deny_outside_workspace({"tool_name": "Glob", "tool_input": {"pattern": "*.py"}}, "tool-use-1", {})
+    )
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_filesystem_scope_hook_ignores_unrelated_tools():
+    for tool_name in ("Bash", "Write", "mcp__kite_gateway__get_holdings"):
+        result = asyncio.run(cas._deny_outside_workspace({"tool_name": tool_name}, "tool-use-1", {}))
+        assert result == {}
+
+
 def test_is_session_limit_error_matches_expected_text():
     assert cas._is_session_limit_error(Exception("You've hit your session limit for now"))
     assert not cas._is_session_limit_error(Exception("connection closed mid-response"))
@@ -741,7 +828,13 @@ def test_build_tool_config_reads_mcp_json_with_no_raw_kite_entry():
     # itself, a separate field from `skills=[...]`'s own auto-added
     # `allowed_tools` entry (see engine/config.py's comment for the full
     # live A/B).
-    assert tools.builtin_tools == ["Read", "Write", "Glob", "Skill"]
+    # No Write (issue #55) — grepped every SKILL.md and found zero
+    # legitimate use of the raw Write tool, so it's removed outright
+    # rather than scoped, same "structural, not policy" bar as Bash above.
+    # Read/Glob stay, since they're genuinely load-bearing, but are scoped
+    # to the workspace roots by a PreToolUse hook instead (see
+    # test_filesystem_scope_hook_* below).
+    assert tools.builtin_tools == ["Read", "Glob", "Skill"]
     # Default 1MB SDK buffer crashed live on a real Layer 2 tool response
     # while porting red-flag-scan — see engine/config.py's _MAX_BUFFER_SIZE.
     assert tools.max_buffer_size == 10_000_000

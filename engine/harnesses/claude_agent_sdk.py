@@ -85,6 +85,7 @@ from engine.time_ist import today_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.tool_budget import TurnBudgetTracker, build_budget_tracker
 from engine.tool_capture import parse_mcp_tool_name, save_tool_result
+from engine.workspace import is_within_known_workspace_roots
 from engine.workspace_notes import build_workspace_notes_server
 
 _SKILL_SCRIPTS_SERVER_NAME = "skill_scripts"
@@ -102,6 +103,27 @@ _IDENTITY_CHECK_SERVER_NAME = "identity_check"
 # reuses kite_gateway's own get_holdings under the hood, in-process, so
 # Layer 1 itself is unchanged and still a faithful, complete proxy.
 _ALWAYS_DISALLOWED_TOOLS = ("mcp__kite_gateway__get_holdings",)
+
+# Read/Glob are the model's own direct, unmediated filesystem access —
+# under bypassPermissions, nothing else stopped a call reading anywhere the
+# process can see (issue #55; Glob was added to builtin_tools after the
+# issue was filed for research-discovery's workspace-check step, but has
+# the identical exposure). Scoped to the workspace roots specifically
+# (`is_within_known_workspace_roots` — workspace/ + the dev-only
+# .dev-workspaces/ sandbox), not the whole repo tree: REPO_ROOT/data/ holds
+# the live Kite session token (kite_gateway_session_id.json) and the
+# account-identity anchor (account_identity.json), both deliberately kept
+# outside workspace/ per CLAUDE.md, and a repo-root-wide boundary would
+# still let Read pull the session token directly — mcp/kite_gateway/
+# server.py's own comment warns that file "could call mcp.kite.trade
+# directly with it, bypassing" the read-only gateway entirely. Every real
+# Read/Glob call site in every skill's SKILL.md already resolves against
+# the workspace root the engine hands the model at turn start
+# (augment_prompt_with_workspace's "[Active workspace: ...]" prefix), never
+# repo-root data/results/engine/. Write isn't here — issue #55 found zero
+# legitimate use of it anywhere, so it's removed from builtin_tools
+# entirely (engine/config.py) rather than scoped.
+_WORKSPACE_SCOPED_TOOLS = {"Read": "file_path", "Glob": "path"}
 
 # vision.md §8's own requirement: state the read-only guarantee inline, at
 # the moment a user is asked to connect their account, not buried in a docs
@@ -333,6 +355,43 @@ def _build_bash_scope_hook(allowed_prefixes: tuple[str, ...]):
     return deny_out_of_scope_bash
 
 
+async def _deny_outside_workspace(input_data: PreToolUseHookInput, tool_use_id: str | None, context):
+    """PreToolUse: denies `Read`/`Glob` calls whose resolved path falls
+    outside the workspace roots — see `_WORKSPACE_SCOPED_TOOLS`'s own
+    comment for why this boundary (not the whole repo tree) and why Write
+    isn't handled here at all (issue #55).
+
+    No "path omitted" carve-out for Glob (its `path` arg is optional,
+    defaulting to cwd/REPO_ROOT): every real Glob call in the skills
+    explicitly sets `path` to somewhere in the active workspace, so an
+    omitted path is never legitimately exercised — resolving it to cwd and
+    denying (cwd is outside the workspace roots) is simpler than special-
+    casing it open. A plain function, not a `_build_*_hook` closure, unlike
+    its neighbors above: it closes over nothing that varies per call or
+    session, so a builder here would only exist to look consistent."""
+    tool_name = input_data.get("tool_name", "")
+    arg_name = _WORKSPACE_SCOPED_TOOLS.get(tool_name)
+    if arg_name is None:
+        return {}
+    raw_path = input_data.get("tool_input", {}).get(arg_name, "")
+    try:
+        resolved = Path(raw_path).resolve()
+    except OSError:
+        resolved = None
+    if resolved is not None and is_within_known_workspace_roots(resolved):
+        return {}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"{tool_name} is scoped to the active workspace; {raw_path!r} "
+                "resolves outside it (issue #55)."
+            ),
+        }
+    }
+
+
 def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     skill_names = tools.skills if isinstance(tools.skills, list) else []
     # A skill declaring `stages` is exposed only through its own
@@ -403,6 +462,7 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
                         _build_deny_hook(tools.guardrail),
                         _build_bash_scope_hook(tools.allowed_bash_prefixes),
                         _build_identity_deny_hook(identity_state),
+                        _deny_outside_workspace,
                     ],
                 )
             ],
