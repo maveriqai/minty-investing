@@ -63,7 +63,7 @@ itself.
 ## Quickstart
 
 ```bash
-git clone https://github.com/EternalTuring/minty-core.git minty
+git clone https://github.com/EternalTuring/minty-investing.git minty
 cd minty
 uv sync
 uv run python ingest/build_instruments_master.py

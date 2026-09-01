@@ -14,7 +14,7 @@ negotiables, and success criteria. `docs/skills.md` is the per-skill spec
 companion. Both are living docs updated as decisions get made; this file
 should agree with them — if it drifts, fix both.
 
-This repo (`minty-investing`, pushed to `github.com/EternalTuring/minty-core`,
+This repo (`minty-investing`, pushed to `github.com/EternalTuring/minty-investing`,
 private) is the active build. It supersedes an earlier, separate `Minty`
 repo — Layer 2 MCP servers and skill *content* carried over from there
 (ported, not copied blindly), but the engine, skill-loading mechanism, and
