@@ -115,9 +115,13 @@ def _check_promoter_holding(shareholding: dict | None) -> tuple[list[dict], bool
 
 
 def _check_surveillance(surveillance: dict | None, symbol: str, list_type: str) -> tuple[list[dict], bool]:
-    """ASM comes back as {"longterm": {"data": [...]}, "shortterm": {"data": [...]}}; GSM as a flat list — both verified live 2026-07-08, not a guess."""
+    """ASM comes back as {"longterm": {"data": [...]}, "shortterm": {"data": [...]}}; GSM as a flat list — both verified live 2026-07-08, not a guess.
+
+    GSM's clean result is `[]` — falsy but a real, meaningful "not listed"
+    answer, not a skip. Only a missing/malformed envelope (`None` from
+    `_envelope_data`, per issue #63) counts as `ran=False`."""
     data = _envelope_data(surveillance)
-    if not data:
+    if data is None:
         return [], False
     if isinstance(data, list):
         buckets = {"": data}

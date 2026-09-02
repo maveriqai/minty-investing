@@ -95,6 +95,16 @@ def test_surveillance_no_match_no_flag():
     assert "asm_surveillance" in result["checks_performed"]
 
 
+def test_gsm_clean_empty_list_counts_as_performed_not_skipped():
+    """Regression test for issue #63: GSM's clean result is a literal `[]`,
+    falsy but a real answer — it must not be misreported as skipped."""
+    gsm = _envelope([])
+    result = rfc.compute(symbol="STOCKA", surveillance_gsm=gsm)
+    assert result["flags"] == []
+    assert "gsm_surveillance" in result["checks_performed"]
+    assert "gsm_surveillance" not in result["checks_skipped"]
+
+
 def test_announcement_keyword_match():
     announcements = _envelope(
         [{"desc": "Resignation of Auditor", "attchmntText": "The company informs..."}]
