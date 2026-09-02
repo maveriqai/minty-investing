@@ -444,6 +444,12 @@ def test_run_staged_skill_expands_a_dynamic_stage_into_one_instance_per_angle(tm
     assert "india_news.get_news" in sessions[0].received_prompts[0]
     assert "names" in sessions[1].received_prompts[0]
     assert "Which listed names are exposed?" in sessions[1].received_prompts[0]
+    # Issue #61 — the generated instruction must route through
+    # update_workspace_notes, not the raw Write tool (removed by #55, and
+    # never wired into this instruction's own rewrite until this fix).
+    assert "update_workspace_notes" in sessions[0].received_prompts[0]
+    assert "Write your finding" not in sessions[0].received_prompts[0]
+    assert "research_finding_policy_{date}.json" in sessions[0].received_prompts[0]
 
 
 def test_run_staged_skill_caps_dynamic_expansion_at_max_instances(tmp_path, monkeypatch):

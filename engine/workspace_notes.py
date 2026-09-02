@@ -32,6 +32,21 @@ it via its `dynamic: true` stage, see engine/staged_skills.py) — the
 pragmatic native substitute for a real pause/resume primitive, decided
 after confirming (engine/staged_skill_tools.py) that a staged run can
 neither pause for the user nor receive per-invocation content.
+
+Extended again (issue #61) with `data/research_finding_<angle_id>_<date>.json`
+— each `gather` instance's own output, the counterpart to the plan-file
+handoff above. This one was missing outright, not just undocumented:
+`_expand_dynamic_stage` (engine/staged_skills.py) generates a per-angle
+instruction telling the model to save this file, and until issue #55
+(2026-09-01) removed the raw `Write` tool from `builtin_tools`, that
+instruction meant a literal `Write` call, which needed no entry here at
+all. #55's own audit (grepping every `.claude/skills/*/SKILL.md` for a
+live `Write` use) never saw this call, since the instruction text is
+generated in this Python module, not in any SKILL.md — so removing `Write`
+silently broke every `gather` instance's ability to persist its finding,
+live-reproduced 2026-09-02 (a rejected update_workspace_notes call, target
+`data/research_finding_fed-policy-outlook_2026-09-02.json`, `_RESEARCH_PLAN_RE`
+matching only `research_plan`, never `research_finding`).
 """
 
 from __future__ import annotations
@@ -51,9 +66,11 @@ _TARGET_DESCRIPTION = (
     "'research/stocks/<SYMBOL>.md', or 'research/themes/<slug>.md' (a "
     "research-discovery finding, keyed by which bucket it belongs in — slug "
     "lowercase-hyphenated, e.g. 'research/sectors/automobile-and-auto-"
-    "components.md'), or 'data/research_plan_<slug>_<date>.json' "
+    "components.md'), 'data/research_plan_<slug>_<date>.json' "
     "(research-discovery's own handoff file to research-discovery-gather, "
-    "date as YYYY-MM-DD). No other path is accepted."
+    "date as YYYY-MM-DD), or 'data/research_finding_<angle_id>_<date>.json' "
+    "(a research-discovery-gather angle's own finding, angle_id "
+    "lowercase-hyphenated, date as YYYY-MM-DD). No other path is accepted."
 )
 
 _THESIS_TARGET_RE = re.compile(r"^theses/[A-Z0-9&\-]+\.md$")
@@ -61,6 +78,7 @@ _SECTOR_RESEARCH_RE = re.compile(r"^research/sectors/[a-z0-9]+(-[a-z0-9]+)*\.md$
 _STOCK_RESEARCH_RE = re.compile(r"^research/stocks/[A-Z0-9&\-]+\.md$")
 _THEME_RESEARCH_RE = re.compile(r"^research/themes/[a-z0-9]+(-[a-z0-9]+)*\.md$")
 _RESEARCH_PLAN_RE = re.compile(r"^data/research_plan_[a-z0-9]+(-[a-z0-9]+)*_\d{4}-\d{2}-\d{2}\.json$")
+_RESEARCH_FINDING_RE = re.compile(r"^data/research_finding_[a-z0-9]+(-[a-z0-9]+)*_\d{4}-\d{2}-\d{2}\.json$")
 
 _INPUT_SCHEMA = {
     "type": "object",
@@ -85,10 +103,18 @@ _INPUT_SCHEMA = {
 def _resolve_target(raw: str) -> str | None:
     """None if `raw` isn't in the allow-listed set — 'notes.md',
     'theses/<SYMBOL>.md', one of the three 'research/<bucket>/<key>.md'
-    forms, or 'data/research_plan_<slug>_<date>.json'."""
+    forms, 'data/research_plan_<slug>_<date>.json', or
+    'data/research_finding_<angle_id>_<date>.json'."""
     if raw == "notes.md":
         return raw
-    for pattern in (_THESIS_TARGET_RE, _SECTOR_RESEARCH_RE, _STOCK_RESEARCH_RE, _THEME_RESEARCH_RE, _RESEARCH_PLAN_RE):
+    for pattern in (
+        _THESIS_TARGET_RE,
+        _SECTOR_RESEARCH_RE,
+        _STOCK_RESEARCH_RE,
+        _THEME_RESEARCH_RE,
+        _RESEARCH_PLAN_RE,
+        _RESEARCH_FINDING_RE,
+    ):
         if pattern.match(raw):
             return raw
     return None
@@ -114,8 +140,9 @@ async def _handler(args: dict[str, Any]) -> dict[str, Any]:
                     "type": "text",
                     "text": (
                         "'target' must be 'notes.md', 'theses/<SYMBOL>.md', "
-                        "'research/sectors|stocks|themes/<key>.md', or "
-                        f"'data/research_plan_<slug>_<date>.json' — got {args.get('target')!r}"
+                        "'research/sectors|stocks|themes/<key>.md', "
+                        "'data/research_plan_<slug>_<date>.json', or "
+                        f"'data/research_finding_<angle_id>_<date>.json' — got {args.get('target')!r}"
                     ),
                 }
             ],
@@ -133,13 +160,15 @@ def build_workspace_notes_tool() -> SdkMcpTool[Any]:
         "Save the workspace's persistent notebook — the only correct way to record "
         "an open thread, key finding, or reusable framework for this workspace, to "
         "update a specific stock's thesis file, to file a research-discovery finding "
-        "into its sector/stock/theme bucket, or to hand off a research-discovery plan "
-        "to research-discovery-gather. Always writes to workspace_root plus an "
-        "allow-listed target (notes.md by default, theses/<SYMBOL>.md, "
-        "research/sectors|stocks|themes/<key>.md, or "
-        "data/research_plan_<slug>_<date>.json), never an invented filename or "
-        "location — read the current content first with Read (if any), merge your "
-        "update into it, then call this with the full merged content.",
+        "into its sector/stock/theme bucket, to hand off a research-discovery plan "
+        "to research-discovery-gather, or to save a single gather angle's own "
+        "finding. Always writes to workspace_root plus an allow-listed target "
+        "(notes.md by default, theses/<SYMBOL>.md, "
+        "research/sectors|stocks|themes/<key>.md, data/research_plan_<slug>_"
+        "<date>.json, or data/research_finding_<angle_id>_<date>.json), never an "
+        "invented filename or location — read the current content first with Read "
+        "(if any), merge your update into it, then call this with the full merged "
+        "content.",
         _INPUT_SCHEMA,
     )(_handler)
 

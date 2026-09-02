@@ -166,8 +166,11 @@ def _expand_dynamic_stage(
             instructions += f"\nSuggested tool(s): {tool_hint}"
         produces = [p.replace("*", angle_id, 1) for p in produces_templates]
         instructions += (
-            "\n\nWrite your finding for this angle only, as JSON, to exactly "
-            f"{produces[0] if produces else '(no produces path declared)'} once you're done."
+            "\n\nOnce you're done, call update_workspace_notes with target set to "
+            f"exactly {produces[0] if produces else '(no produces path declared)'} "
+            "and content set to your finding for this angle only, as JSON — Write "
+            "isn't available in this session, update_workspace_notes is the only "
+            "way to persist it."
         )
         instances.append(
             {

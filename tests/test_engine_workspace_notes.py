@@ -71,6 +71,19 @@ def test_resolve_target_accepts_research_buckets_and_plan_file():
     )
 
 
+def test_resolve_target_accepts_the_research_finding_handoff_file():
+    # Issue #61 — a gather instance's own finding file, the counterpart to
+    # the research_plan handoff; missing from the allow-list entirely until
+    # this fix, which silently broke every research-discovery-gather angle
+    # once #55 removed the raw Write tool it used to rely on instead.
+    assert _resolve_target("data/research_finding_fed-policy-outlook_2026-09-02.json") == (
+        "data/research_finding_fed-policy-outlook_2026-09-02.json"
+    )
+    assert _resolve_target("data/research_finding_policy_2026-08-30.json") == (
+        "data/research_finding_policy_2026-08-30.json"
+    )
+
+
 def test_resolve_target_rejects_anything_else():
     assert _resolve_target("../escape.md") is None
     assert _resolve_target("data/holdings.json") is None
@@ -79,6 +92,8 @@ def test_resolve_target_rejects_anything_else():
     assert _resolve_target("research/stocks/reliance.md") is None  # must be uppercase
     assert _resolve_target("research/other/pli.md") is None  # not an allow-listed bucket
     assert _resolve_target("data/research_plan_pli_30-08-2026.json") is None  # date must be YYYY-MM-DD
+    assert _resolve_target("data/research_finding_pli_30-08-2026.json") is None  # date must be YYYY-MM-DD
+    assert _resolve_target("data/research_finding_PLI_2026-08-30.json") is None  # must be lowercase slug
 
 
 def test_update_workspace_notes_tool_writes_to_notes_md_by_default(tmp_path, monkeypatch):
@@ -165,6 +180,31 @@ def test_update_workspace_notes_tool_writes_the_research_plan_handoff_file(tmp_p
     assert result.get("is_error") is not True
     plan_path = workspace / "data" / "research_plan_pli-semiconductors_2026-08-30.json"
     assert plan_path.read_text() == plan_content
+
+
+def test_update_workspace_notes_tool_writes_a_gather_angle_finding_file(tmp_path, monkeypatch):
+    # Issue #61 — the actual live-reproduced failure: a research-discovery-
+    # gather instance's update_workspace_notes call was rejected because
+    # this target pattern didn't exist yet.
+    _patch_roots(monkeypatch, tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    update_tool = build_workspace_notes_tool()
+    finding_content = '{"angle_id": "fed-policy-outlook", "status": "found", "detail": "..."}'
+    result = _run(
+        update_tool.handler(
+            {
+                "workspace_root": str(workspace),
+                "target": "data/research_finding_fed-policy-outlook_2026-09-02.json",
+                "content": finding_content,
+            }
+        )
+    )
+
+    assert result.get("is_error") is not True
+    finding_path = workspace / "data" / "research_finding_fed-policy-outlook_2026-09-02.json"
+    assert finding_path.read_text() == finding_content
 
 
 def test_update_workspace_notes_tool_rejects_an_invalid_target(tmp_path, monkeypatch):
