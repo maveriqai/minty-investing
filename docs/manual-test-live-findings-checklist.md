@@ -56,18 +56,28 @@ deviation directly below the row rather than editing the expectation.
 | E1 | Pick a concentrated holding (or any symbol), ask for a volatility/drawdown deep dive (portfolio-health-check step 4, or directly: fetch ~1yr OHLCV then `run_volatility`) | **Regression check — should now pass.** Previously crashed on every symbol (envelope unwrap stopped one level short of the bars list). Fixed in `5ff0af8` — confirm `results/<symbol>_volatility_<date>.json` is written with real numbers (return %, max drawdown + dates, daily/annualized vol, worst single day), not a traceback. |
 | E2 | `you> what's my thesis on <SYMBOL>` or any thesis-tracker run that writes `workspace/theses/<SYMBOL>.md` | The file is written correctly (thesis-tracker's documented canonical output per CLAUDE.md) — but **currently** the engine's changed-files diagnostic (`_report_changed_files`) flags it as "not matching any known skill's expected output," a misclassification. #44, not yet fixed. Check whether this still fires. |
 
-## F. red-flag-scan governance checklist (#45 — FIXED, closed 2026-09-02)
+## F. red-flag-scan governance checklist (#45, #63 — FIXED, closed 2026-09-02)
 
 | # | Action | Expected result |
 |---|--------|------------------|
 | F1 | Run red-flag-scan (directly, or via a deep-scan turn) on a company with a real, recent cluster of senior-management/director departures (Force Motors was the live example — 11 cessations in one filing day) | **Pass (2026-09-02 re-verification).** Fixed in `d45eff1`, which added `"resignation of director"`/`"resignation of key managerial personnel"` (and auditor variants) to `RED_FLAG_KEYWORDS`. Live-tested on FORCEMOT (same real cluster): scan correctly caught 4 `announcement_keyword` flags — see `workspace/results/red_flags_FORCEMOT_2026-09-02.json`. |
 
-**New gap found during this re-verification (#63, not yet fixed):**
-`gsm_surveillance` is incorrectly reported as `checks_skipped` even when
-correctly fetched and passed — `_check_surveillance` in
-`red_flag_check.py` falsy-checks an empty list (GSM's "clean" shape),
-conflating "not on the list" with "couldn't check." ASM never hits this
-since its envelope is a dict, not a list.
+**Gap found during this re-verification, fixed same day (#63, closed
+2026-09-02):** `gsm_surveillance` was incorrectly reported as
+`checks_skipped` even when correctly fetched and passed —
+`_check_surveillance` in `red_flag_check.py` falsy-checked an empty list
+(GSM's "clean" shape), conflating "not on the list" with "couldn't
+check." ASM never hit this since its envelope is a dict, not a list.
+Fixed in `a023aa4` (checks `data is None` instead of falsy-checking the
+unwrapped result) with a regression test. Live re-verified two ways:
+(1) rerunning the script directly against the exact real GSM capture
+that originally reproduced the bug (`workspace/data/
+surveillance_gsm_2026-09-02.json`, FORCEMOT) now yields
+`gsm_surveillance` in `checks_performed`; (2) a fresh full skill run on
+TATAMOTORS (`workspace/results/red_flags_TATAMOTORS_2026-09-02.json`)
+shows `gsm_surveillance` in `checks_performed` end to end, and the
+model's reply correctly narrates it as "ran clean," not "couldn't
+check."
 
 ## G. portfolio-health-check at real scale (#46 — FIXED)
 
