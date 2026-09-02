@@ -10,6 +10,7 @@ prompting only when a repoint would happen; a fresh machine or
 reinstalling from the same repo proceeds straight through with no prompt.
 
 Usage: uv run python scripts/install_entrypoint.py [--yes]
+       uv run python scripts/install_entrypoint.py --where
 """
 
 from __future__ import annotations
@@ -54,6 +55,14 @@ def _run_install() -> int:
 
 
 def main(argv: list[str]) -> int:
+    if "--where" in argv:
+        existing = _find_existing_install_path()
+        if existing is None:
+            print("No `minty` install found yet — run this script without --where to install.")
+            return 1
+        print(existing)
+        return 0
+
     skip_prompt = "--yes" in argv or "-y" in argv
 
     existing = _find_existing_install_path()

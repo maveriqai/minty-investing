@@ -111,6 +111,19 @@ repo clone it was last installed from. Two consequences worth knowing:
   silently switching. Scripting a fresh install non-interactively (CI, a
   provisioning script)? Pass `--yes` to skip the prompt.
 
+**Check which repo `minty` currently points at**, e.g. if you have more
+than one clone (a dev checkout and a fresh-install test, say) and aren't
+sure which one a plain `minty` in a random terminal will actually read
+from:
+
+```bash
+uv run python scripts/install_entrypoint.py --where
+```
+
+Prints the absolute path of the repo the global `minty` command is
+currently wired to — the same check `install_entrypoint.py` runs
+internally before deciding whether to prompt you about repointing it.
+
 ## Onboarding
 
 Three steps, in order, from a fresh install to your first real result.

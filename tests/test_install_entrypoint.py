@@ -141,6 +141,21 @@ def test_main_yes_flag_skips_prompt_even_with_a_conflict(tmp_path, monkeypatch):
     assert calls == ["installed"]
 
 
+def test_main_where_flag_prints_existing_install_path(tmp_path, monkeypatch, capsys):
+    other = tmp_path / "other-clone"
+    monkeypatch.setattr(ie, "_find_existing_install_path", lambda: other)
+
+    assert ie.main(["--where"]) == 0
+    assert capsys.readouterr().out.strip() == str(other)
+
+
+def test_main_where_flag_no_prior_install_reports_none(monkeypatch, capsys):
+    monkeypatch.setattr(ie, "_find_existing_install_path", lambda: None)
+
+    assert ie.main(["--where"]) == 1
+    assert "No `minty` install found" in capsys.readouterr().out
+
+
 def test_main_eof_from_input_is_treated_as_decline(tmp_path, monkeypatch):
     other = tmp_path / "other-clone"
     monkeypatch.setattr(ie, "_find_existing_install_path", lambda: other)
