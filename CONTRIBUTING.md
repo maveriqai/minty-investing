@@ -1,9 +1,9 @@
 # Contributing
 
-Minty Investing is an early-stage, private repo — this doc exists so
-contributors (currently: the maintainer's own future sessions and any
-collaborator added to the repo) work from the same conventions instead of
-re-deriving them per change.
+Minty Investing is an early-stage, public repo — this doc exists so
+contributors (currently: the maintainer's own future sessions and anyone
+else who sends a PR) work from the same conventions instead of re-deriving
+them per change.
 
 ## Start here
 
