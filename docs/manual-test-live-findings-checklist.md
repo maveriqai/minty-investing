@@ -56,11 +56,18 @@ deviation directly below the row rather than editing the expectation.
 | E1 | Pick a concentrated holding (or any symbol), ask for a volatility/drawdown deep dive (portfolio-health-check step 4, or directly: fetch ~1yr OHLCV then `run_volatility`) | **Regression check — should now pass.** Previously crashed on every symbol (envelope unwrap stopped one level short of the bars list). Fixed in `5ff0af8` — confirm `results/<symbol>_volatility_<date>.json` is written with real numbers (return %, max drawdown + dates, daily/annualized vol, worst single day), not a traceback. |
 | E2 | `you> what's my thesis on <SYMBOL>` or any thesis-tracker run that writes `workspace/theses/<SYMBOL>.md` | The file is written correctly (thesis-tracker's documented canonical output per CLAUDE.md) — but **currently** the engine's changed-files diagnostic (`_report_changed_files`) flags it as "not matching any known skill's expected output," a misclassification. #44, not yet fixed. Check whether this still fires. |
 
-## F. red-flag-scan governance checklist (#45 — deferred)
+## F. red-flag-scan governance checklist (#45 — FIXED, closed 2026-09-02)
 
 | # | Action | Expected result |
 |---|--------|------------------|
-| F1 | Run red-flag-scan (directly, or via a deep-scan turn) on a company with a real, recent cluster of senior-management/director departures (Force Motors was the live example — 11 cessations in one filing day) | **Currently**: `RED_FLAG_KEYWORDS` and the structural checks (promoter-holding drop, ASM/GSM surveillance, leverage/liquidity/ROE decline) have no check for management/director turnover at all — the scan reports 0 flags. The model only caught it because it happened to read the filing text directly, not through the automated check. Not yet fixed (deferred, "look into it later") — confirm the scan still reports 0 flags on a case like this. |
+| F1 | Run red-flag-scan (directly, or via a deep-scan turn) on a company with a real, recent cluster of senior-management/director departures (Force Motors was the live example — 11 cessations in one filing day) | **Pass (2026-09-02 re-verification).** Fixed in `d45eff1`, which added `"resignation of director"`/`"resignation of key managerial personnel"` (and auditor variants) to `RED_FLAG_KEYWORDS`. Live-tested on FORCEMOT (same real cluster): scan correctly caught 4 `announcement_keyword` flags — see `workspace/results/red_flags_FORCEMOT_2026-09-02.json`. |
+
+**New gap found during this re-verification (#63, not yet fixed):**
+`gsm_surveillance` is incorrectly reported as `checks_skipped` even when
+correctly fetched and passed — `_check_surveillance` in
+`red_flag_check.py` falsy-checks an empty list (GSM's "clean" shape),
+conflating "not on the list" with "couldn't check." ASM never hits this
+since its envelope is a dict, not a list.
 
 ## G. portfolio-health-check at real scale (#46 — FIXED)
 

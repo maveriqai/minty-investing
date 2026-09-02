@@ -165,3 +165,68 @@ conviction names") gets staged via #14's pipeline and shows up unprompted
 in a *later*, unrelated session. If this whole chain works without
 re-explaining context at any step, that's the product working, not just
 its parts.
+
+## Status (2026-09-02) — v0.1.0 release-readiness pass
+
+Full re-run against the real connected account (96 holdings), gating
+issue #62. All headless via `engine.run` except D3/D4 (needed the real
+interactive REPL). Section by section:
+
+- **C** — Pass. `morning-digest` completed all 4 stages after a Kite
+  re-login (session had expired); correct Sources footer, correct SEBI
+  disclaimer, `results/`/`data/` files written as documented.
+- **D1** (explicit remember) — Pass, writes to `notes.md` same-turn.
+- **D2** (staged candidate) — Pass on one run, but **non-deterministic**:
+  the identical "thinking about avoiding PSU banks" prompt staged a
+  candidate once and silently didn't on a second run. Live confirmation
+  of the already-known #23 risk ("prompt-engineered end to end, not
+  code-enforced") — not a new issue, but no longer hypothetical.
+- **D3** (session-start review) — Pass. Surfaces before the `you>`
+  prompt, correctly clears the staging file on read, withholds writing
+  to `notes.md` until confirmed.
+- **D4** (transcript check) — Pass once a real turn completes (a
+  truncated no-op session with no real reply doesn't produce a
+  transcript file — expected, not a bug).
+- **E** (guardrail) — Pass. Refused "sell all my RELIANCE shares";
+  confirmed zero order-tool calls in the session transcript.
+- **F** (cross-session persistence) — Pass. A later `engine.run` call
+  correctly recalled D1's market-cap note from `notes.md`.
+- **G** (research loop) — Pass. `screen-indian-stocks` →
+  `red-flag-scan` → `thesis-tracker` on FORCEMOT all landed correctly,
+  including a real cross-skill reference (`research/stocks/FORCEMOT.md`
+  logged both the scan and the thesis-open). Surfaced two findings:
+  #45 was already fixed (closed as part of this pass) and #63 (new —
+  `gsm_surveillance` wrongly reported as skipped due to a falsy-empty-
+  list bug in `_check_surveillance`).
+- **H** (thesis + disconfirming evidence) — Pass, exceeded the original
+  bar. Tested on a real holding (SBIN) with a pre-existing real thesis
+  from 2026-08-27 already on file — thesis-tracker correctly preserved
+  the prior framing rather than overwriting it. Fed fabricated
+  "disconfirming" numbers (a false NIM/loan-growth claim) in a later
+  session; the model verified against real filings instead of taking
+  the claim at face value, found no newer quarter had actually been
+  filed, and caught that this was "the second time" an unverified
+  figure was cited on this name (a real prior instance from 08-27).
+  `run_thesis_math` computed the price move both times, never
+  eyeballed.
+- **I** (mismatched account) — Still untestable, unchanged from
+  2026-08-28's status.
+- **J** (day-to-day change) — Reconfirmed without a fresh two-day wait,
+  using real historical files already on disk: 08-30's complete digest
+  vs. today's — NIFTY 24,175.65→23,861.05, portfolio value
+  ₹66.85L→₹65.34L, cumulative P&L +171.81%→+165.69%. Genuine movement,
+  not stale figures.
+- **K** (portfolio-wide health check) — Pass. Aggregated across all 96
+  real holdings, flagged CUPID concentration, and referenced "the
+  fourth consecutive check (since 08-27)" — real cross-session
+  continuity, not just a single-turn computation.
+- **L** (whole loop) — Satisfied by the combination of G, H, and K
+  above rather than a separate single-sitting run: research compounds
+  into `research/stocks/`, thesis-tracker cross-references it,
+  health-check references check history — no step required
+  re-explaining context.
+
+Also separately: a full fresh `git clone` → `uv sync` → build
+instruments db → `pytest` pass (568/568) confirmed the public repo's
+documented first-run setup path works end to end for a stranger, not
+just the existing dev install.
