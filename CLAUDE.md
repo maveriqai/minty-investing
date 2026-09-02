@@ -14,7 +14,7 @@ negotiables, and success criteria. `docs/skills.md` is the per-skill spec
 companion. Both are living docs updated as decisions get made; this file
 should agree with them — if it drifts, fix both.
 
-This repo (`minty-investing`, pushed to `github.com/EternalTuring/minty-investing`,
+This repo (`minty-investing`, pushed to `github.com/maveriqai/minty-investing`,
 private) is the active build. It supersedes an earlier, separate `Minty`
 repo — Layer 2 MCP servers and skill *content* carried over from there
 (ported, not copied blindly), but the engine, skill-loading mechanism, and
@@ -245,8 +245,9 @@ reference.)
 
 See `docs/next-phase-plan.md` §8 and the README's "Known gaps" section for
 what's genuinely unresolved (Windows support — `os.fchmod` blocker in
-`kite_gateway`'s session persistence, untested reminder backend; no CI/
-CONTRIBUTING doc yet; issue #23 — the memory-extraction staging pipeline's
+`kite_gateway`'s session persistence, untested reminder backend; no CI
+yet (`CONTRIBUTING.md` now covers conventions, but nothing enforces them
+automatically); issue #23 — the memory-extraction staging pipeline's
 confirm-before-write guarantee is prompt-only, not code-enforced). When a
 task seems to depend on one of these, stop and check rather than assuming
 it's already solid.

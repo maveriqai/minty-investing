@@ -63,7 +63,7 @@ itself.
 ## Quickstart
 
 ```bash
-git clone https://github.com/EternalTuring/minty-investing.git minty
+git clone https://github.com/maveriqai/minty-investing.git minty
 cd minty
 uv sync
 uv run python ingest/build_instruments_master.py
@@ -337,5 +337,5 @@ point changes (rare) — not for routine updates.
   (`engine/reminder/windows.py`) is in the same boat — built and
   unit-tested against mocked `schtasks`/PowerShell calls, but never run
   for real, for the same no-Windows-machine reason.
-- No CI, no CONTRIBUTING doc yet — contributor-facing surface
-  (`docs/vision.md` §7 Track 2) hasn't started.
+- No CI yet — contributor-facing surface (`docs/vision.md` §7 Track 2)
+  is still incomplete. `CONTRIBUTING.md` now covers the conventions side.
