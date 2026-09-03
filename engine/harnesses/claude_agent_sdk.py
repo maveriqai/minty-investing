@@ -273,9 +273,29 @@ _OVERSIZED_RESULT_SYSTEM_PROMPT = (
     "directly."
 )
 
+# Issue #74: raised live during the 2026-09-02 v0.1.0 manual test — a
+# user has no way to browse what Minty has already written
+# (research/sectors|stocks|themes/, theses/) short of already knowing the
+# exact path and looking outside the session. Read/Glob are already
+# scoped to the active workspace (issue #55), so the model can already
+# answer this — nothing new to register — it just needs telling to
+# actually check rather than answering from memory or saying it doesn't
+# know. Scoped down from a dedicated `/browse` command (the issue's other
+# suggested angle): a plain question the model can already resolve with
+# tools it already has doesn't need a new command surface.
+_BROWSE_WORKSPACE_SYSTEM_PROMPT = (
+    "If the user asks what you've already researched, written, or found "
+    "about a stock, sector, or theme — or asks to browse/see prior notes "
+    "— don't answer from memory or say you don't know without checking "
+    "first. Use Glob (path set under the active workspace's research/ or "
+    "theses/ subdirectory) to list what's actually there, then Read "
+    "whatever's relevant before replying."
+)
+
 _SYSTEM_PROMPT = (
     f"{_TOPIC_SCOPE_SYSTEM_PROMPT}\n\n{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
     f"\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}\n\n{_NEXT_STEP_SYSTEM_PROMPT}\n\n{_OVERSIZED_RESULT_SYSTEM_PROMPT}"
+    f"\n\n{_BROWSE_WORKSPACE_SYSTEM_PROMPT}"
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the

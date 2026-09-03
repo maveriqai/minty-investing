@@ -241,6 +241,13 @@ written anywhere right away: they're queued, and at the start of your
 anything reaches your notes. Nothing lands in the hand-curated notes file
 without you actually seeing it first.
 
+## Finding what Minty has already written
+
+Just ask — e.g. "what have you already researched about IT services?" or
+"what do you have on RELIANCE?" Minty checks `research/`, `theses/`, and
+your notes before answering, rather than answering from memory or saying
+it doesn't know.
+
 ## Reporting a bug or a piece of feedback
 
 Type `/feedback <what you want to report>` at any `you>` prompt:

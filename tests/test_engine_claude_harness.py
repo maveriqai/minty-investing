@@ -263,6 +263,17 @@ def test_build_options_sets_oversized_result_system_prompt():
     assert "exceeds maximum allowed tokens" in cas._OVERSIZED_RESULT_SYSTEM_PROMPT
 
 
+def test_build_options_sets_browse_workspace_system_prompt():
+    # Issue #74 — Read/Glob are already scoped to the active workspace
+    # (issue #55), so the model can already answer "what have you written
+    # about X" itself; this just tells it to actually check instead of
+    # answering from memory.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._BROWSE_WORKSPACE_SYSTEM_PROMPT in options.system_prompt
+    assert "Glob" in cas._BROWSE_WORKSPACE_SYSTEM_PROMPT
+
+
 def test_build_options_wires_a_pretooluse_hook():
     # Four PreToolUse hooks: order-tool denial, Bash-scope denial, the
     # identity-mismatch deny hook (issue #19), and the Read/Glob
