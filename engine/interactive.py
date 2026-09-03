@@ -22,6 +22,7 @@ from engine.claude_login import ensure_logged_in
 from engine.config import build_tool_config
 from engine.diagnostics import emit as _emit
 from engine.engine_log import new_engine_log_path
+from engine.feedback import FEEDBACK_COMMAND_PREFIX, append_feedback
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
@@ -484,7 +485,7 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
     transcript_path = new_transcript_path(workspace_root, now=session_started_at)
     audit_log_path = new_audit_log_path(workspace_root, now=session_started_at)
     engine_log_path = new_engine_log_path(workspace_root, now=session_started_at)
-    print("Minty — connected. Type a message, 'exit' to quit.")
+    print("Minty — connected. Type a message, 'exit' to quit, '/feedback <note>' to report something.")
     async with harness.open_session(tools) as session:
         # Issue #14, piece 3 — anything staged by stage_memory_candidate
         # (this session or an earlier one that never got reviewed) is
@@ -567,6 +568,14 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
                 continue
             if prompt.lower() in _EXIT_COMMANDS:
                 break
+            if prompt.startswith(FEEDBACK_COMMAND_PREFIX):
+                note = prompt[len(FEEDBACK_COMMAND_PREFIX) :].strip()
+                if not note:
+                    print("Usage: /feedback <what you want to report> — e.g. /feedback the login link wasn't clickable")
+                else:
+                    path = append_feedback(workspace_root, note)
+                    print(f"Saved to {path} — local only, nothing sent anywhere automatically.")
+                continue
             print("minty> ")
             with _suspend_input_echo():
                 await _run_turn(

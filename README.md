@@ -241,6 +241,19 @@ written anywhere right away: they're queued, and at the start of your
 anything reaches your notes. Nothing lands in the hand-curated notes file
 without you actually seeing it first.
 
+## Reporting a bug or a piece of feedback
+
+Type `/feedback <what you want to report>` at any `you>` prompt:
+
+```
+you> /feedback the Kite login link wasn't clickable in my terminal
+```
+
+This is local only — it appends a timestamped note to
+`workspace/feedback.md` and nothing is sent anywhere automatically.
+Review that file yourself and file what's worth filing as a GitHub issue
+against [maveriqai/minty-investing](https://github.com/maveriqai/minty-investing/issues).
+
 ## Data sources
 
 Minty's own data tools (`mcp/india_price`, `india_filings`, `india_macro`,

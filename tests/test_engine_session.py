@@ -526,6 +526,63 @@ def test_repl_skips_the_review_turn_when_nothing_is_staged(tmp_path, monkeypatch
     assert session.received_prompts == []
 
 
+def test_repl_feedback_command_saves_locally_without_sending_a_turn(tmp_path, monkeypatch, capsys):
+    from engine.feedback import feedback_path
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession([], EngineResult(ok=True, text="", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    responses = iter(["/feedback the login link wasn't clickable"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert session.received_prompts == []
+    saved = feedback_path(workspace_root)
+    assert "the login link wasn't clickable" in saved.read_text()
+    assert "Saved to" in capsys.readouterr().out
+
+
+def test_repl_feedback_command_with_no_note_shows_usage_and_saves_nothing(tmp_path, monkeypatch, capsys):
+    from engine.feedback import feedback_path
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession([], EngineResult(ok=True, text="", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    responses = iter(["/feedback"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert session.received_prompts == []
+    assert not feedback_path(workspace_root).exists()
+    assert "Usage: /feedback" in capsys.readouterr().out
+
+
 def test_repl_fences_staged_candidate_content_as_data_not_instructions(tmp_path, monkeypatch):
     # Review of issue #14: model-composed staged content is concatenated
     # into the review prompt — fenced and explicitly labeled as data so a
