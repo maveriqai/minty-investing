@@ -250,9 +250,32 @@ _TOPIC_SCOPE_SYSTEM_PROMPT = (
     "assistant would."
 )
 
+# Issue #67: live-tested 2026-09-02, an oversized get_daily_ohlcv result
+# (5yr range) got the Claude Agent SDK's own "exceeds maximum allowed
+# tokens" redirect, which names an overflow path under
+# ~/.claude/projects/.../tool-results/ — structurally outside the
+# workspace roots `_deny_outside_workspace` above scopes Read/Glob to
+# (issue #55), so a Read there is *always* denied. The model recovered
+# fine on its own (re-querying a narrower range) but wasted a call finding
+# that out; this tells it up front rather than after a guaranteed-failing
+# Read. `_is_untrustworthy_capture` (engine/tool_capture.py) recognizes
+# the same "exceeds maximum allowed tokens" text for a different reason
+# (rejecting it as a capture) — not shared as one constant since the two
+# checks live in different modules for different purposes and a plain
+# substring match doesn't warrant the coupling.
+_OVERSIZED_RESULT_SYSTEM_PROMPT = (
+    "If a tool result says its output 'exceeds maximum allowed tokens' and "
+    "names a file it was saved to instead, don't bother reading that file "
+    "with Read — that path is always outside the active workspace and Read "
+    "is scoped to the workspace, so it will always be denied. Instead, "
+    "retry the original call with a narrower request (e.g. a shorter date "
+    "range for OHLCV data, or fewer items) small enough to come back "
+    "directly."
+)
+
 _SYSTEM_PROMPT = (
     f"{_TOPIC_SCOPE_SYSTEM_PROMPT}\n\n{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
-    f"\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}\n\n{_NEXT_STEP_SYSTEM_PROMPT}"
+    f"\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}\n\n{_NEXT_STEP_SYSTEM_PROMPT}\n\n{_OVERSIZED_RESULT_SYSTEM_PROMPT}"
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the

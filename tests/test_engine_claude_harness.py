@@ -252,6 +252,17 @@ def test_build_options_sets_next_step_system_prompt():
     assert "Next: " in cas._NEXT_STEP_SYSTEM_PROMPT
 
 
+def test_build_options_sets_oversized_result_system_prompt():
+    # Issue #67 — an oversized tool result's SDK-generated overflow file
+    # always lives outside the workspace roots Read/Glob are scoped to
+    # (issue #55), so a Read there is guaranteed to be denied; this tells
+    # the model not to bother trying before it wastes a call finding out.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._OVERSIZED_RESULT_SYSTEM_PROMPT in options.system_prompt
+    assert "exceeds maximum allowed tokens" in cas._OVERSIZED_RESULT_SYSTEM_PROMPT
+
+
 def test_build_options_wires_a_pretooluse_hook():
     # Four PreToolUse hooks: order-tool denial, Bash-scope denial, the
     # identity-mismatch deny hook (issue #19), and the Read/Glob
