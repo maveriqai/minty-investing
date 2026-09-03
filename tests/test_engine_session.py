@@ -153,10 +153,11 @@ def test_wait_for_mcp_servers_ready_gives_up_at_timeout_without_hanging():
 
 
 class _FakeSession:
-    def __init__(self, chunks, result, last_over_budget=None):
+    def __init__(self, chunks, result, last_over_budget=None, last_tool_calls=None):
         self._chunks = chunks
         self.last_result = result
         self.last_over_budget = last_over_budget or []
+        self.last_tool_calls = last_tool_calls or []
         self.received_prompts: list[str] = []
 
     async def send(self, prompt: str, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
@@ -198,6 +199,57 @@ def test_run_turn_prints_over_budget_lines_as_a_diagnostic(tmp_path, monkeypatch
     asyncio.run(_run_turn(session, "hi"))
     out = capsys.readouterr().out
     assert "[budget] india_news.get_news called 33 times this turn" in out
+
+
+def test_run_turn_prints_an_alarming_line_for_a_genuinely_unexpected_error(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    session = _FakeSession(
+        ["ok"],
+        EngineResult(ok=True, text="ok", error_kind=None, raw=None),
+        last_tool_calls=[
+            {"tool_name": "Bash", "status": "error", "result_preview": "permission denied"}
+        ],
+    )
+    asyncio.run(_run_turn(session, "hi"))
+    out = capsys.readouterr().out
+    assert "[audit] tool error: Bash — permission denied" in out
+
+
+def test_run_turn_downgrades_an_anticipated_cold_start_error(tmp_path, monkeypatch, capsys):
+    """Issue #69: screen-indian-stocks' step 3 reading a prior research note
+    that correctly doesn't exist yet on a fresh workspace is documented,
+    expected control flow — must not read as "something broke"."""
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    session = _FakeSession(
+        ["ok"],
+        EngineResult(ok=True, text="ok", error_kind=None, raw=None),
+        last_tool_calls=[
+            {"tool_name": "Read", "status": "error", "result_preview": "File does not exist."}
+        ],
+    )
+    asyncio.run(_run_turn(session, "hi"))
+    out = capsys.readouterr().out
+    assert "[note] Read — File does not exist. (expected, not a problem)" in out
+    assert "[audit] tool error" not in out
+
+
+def test_run_turn_downgrades_a_pre_login_kite_call(tmp_path, monkeypatch, capsys):
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    session = _FakeSession(
+        ["ok"],
+        EngineResult(ok=True, text="ok", error_kind=None, raw=None),
+        last_tool_calls=[
+            {
+                "tool_name": "mcp__kite_gateway__get_profile",
+                "status": "error",
+                "result_preview": "Please log in first using the login tool.",
+            }
+        ],
+    )
+    asyncio.run(_run_turn(session, "hi"))
+    out = capsys.readouterr().out
+    assert "[note] mcp__kite_gateway__get_profile" in out
+    assert "[audit] tool error" not in out
 
 
 def test_run_turn_reports_error_kind_to_stderr_on_failed_turn(tmp_path, monkeypatch, capsys):

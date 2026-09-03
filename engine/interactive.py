@@ -49,6 +49,29 @@ _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _SPINNER_POLL_S = 0.15
 _NEXT_STEP_PREFIX = "Next:"
 
+# Issue #69: some tool calls that come back with status "error" are a
+# skill's own documented, expected control flow — e.g. screen-indian-
+# stocks' step 3 reading a prior research note that correctly doesn't
+# exist yet on a fresh workspace, or an ad hoc call made before a Kite
+# session exists — not a signal anything actually broke. Live-tested
+# 2026-09-02: both fired right after a polished, correct reply and read
+# as "something broke" to a user, with no way to tell the two apart
+# without reading the skill's own SKILL.md. A fixed allowlist of known-
+# expected result text downgrades the wording (not the visibility —
+# issue #47's own guarantee stays intact, every error still prints)
+# rather than a general heuristic, so a genuinely new/unexpected error
+# still reads as alarming by default.
+_ANTICIPATED_ERROR_PATTERNS = (
+    "File does not exist",
+    "Please log in first using the login tool",
+)
+
+
+def _is_anticipated_error(result_preview: str | None) -> bool:
+    if result_preview is None:
+        return False
+    return any(pattern in result_preview for pattern in _ANTICIPATED_ERROR_PATTERNS)
+
 
 def _workspace_name(workspace_root: Path) -> str:
     """`workspace_root`'s own path relative to REPO_ROOT ("workspace", or
@@ -423,7 +446,10 @@ async def _run_turn(
             # (e.g. a guardrail's permissionDecisionReason). Deliberately
             # only errors, not every call: a heavy turn can have 70+ tool
             # calls, and the full record is already in audit_log_path.
-            print(f"[audit] tool error: {record['tool_name']} — {record['result_preview']}")
+            if _is_anticipated_error(record["result_preview"]):
+                print(f"[note] {record['tool_name']} — {record['result_preview']} (expected, not a problem)")
+            else:
+                print(f"[audit] tool error: {record['tool_name']} — {record['result_preview']}")
     for line in getattr(session, "last_over_budget", []):
         _emit(f"[budget] {line}", log_path=engine_log_path)
     today = now_ist().date().isoformat()
