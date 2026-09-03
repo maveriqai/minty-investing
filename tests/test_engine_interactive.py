@@ -394,3 +394,52 @@ def test_split_footer_separates_model_text_from_a_bare_disclaimer():
 
     assert model_text == "Here's what's staged for review."
     assert footer_text == DISCLAIMER_ONLY_FOOTER
+
+
+def test_split_footer_dims_a_self_authored_sources_line_and_disclaimer(tmp_path):
+    """Issue #70: a "what are my holdings" reply answered from cached
+    data made no fresh captures this turn, so the engine's own footer
+    never fired — the model wrote its own "**Sources:** ..." line and the
+    disclaimer text itself instead. Both should split out together as one
+    footer block, not stay folded into the body as plain undimmed text."""
+    from engine.sources_footer import DISCLAIMER
+
+    full_text = (
+        "CUPID alone is a quarter of your portfolio.\n\n"
+        "**Sources:** Kite holdings snapshot (`workspace/data/holdings_2026-09-03.json`), "
+        "computed via `workspace/results/health_check_2026-09-03.json`.\n\n"
+        f"{DISCLAIMER}"
+    )
+
+    model_text, footer_text = _split_footer(full_text)
+
+    assert model_text.strip() == "CUPID alone is a quarter of your portfolio."
+    assert footer_text.startswith("**Sources:**")
+    assert footer_text.endswith(DISCLAIMER)
+
+
+def test_split_footer_dims_a_self_authored_disclaimer_with_no_sources_line(tmp_path):
+    """A narrower case than the row above — the model wrote only the
+    disclaimer itself, no citation line before it. Only the disclaimer
+    sentence should split out; nothing to gain by guessing further back
+    into ordinary prose that doesn't start with "**Sources"."""
+    from engine.sources_footer import DISCLAIMER
+
+    full_text = f"Here's your answer, no fresh data fetched this turn.\n\n{DISCLAIMER}"
+
+    model_text, footer_text = _split_footer(full_text)
+
+    assert model_text.strip() == "Here's your answer, no fresh data fetched this turn."
+    assert footer_text == DISCLAIMER
+
+
+def test_split_footer_self_authored_fallback_never_fires_when_no_disclaimer_present():
+    # Guards against the new fallback swallowing ordinary prose that
+    # happens to contain a blank-line-separated paragraph — it must only
+    # ever trigger once DISCLAIMER's own exact text is found.
+    full_text = "Some body text.\n\n**Sources: not the real thing, just a coincidence.**"
+
+    model_text, footer_text = _split_footer(full_text)
+
+    assert model_text == full_text
+    assert footer_text == ""

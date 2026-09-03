@@ -28,7 +28,7 @@ from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
 from engine.memory_candidates import candidates_path, read_and_clear
 from engine.session_transcript import append_turn, new_transcript_path
-from engine.sources_footer import DISCLAIMER_ONLY_FOOTER, FOOTER_MARKER
+from engine.sources_footer import DISCLAIMER, DISCLAIMER_ONLY_FOOTER, FOOTER_MARKER
 from engine.time_ist import now_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import (
@@ -327,16 +327,54 @@ def _suspend_input_echo():
         termios.tcsetattr(fd, termios.TCSANOW, old)
 
 
+def _find_self_authored_footer_start(full_text: str) -> int:
+    """Issue #70: the engine's own footer never fires on a turn that made
+    no fresh captures (`build_footer`'s own "nothing to cite" case,
+    e.g. answering "what are my holdings" from an already-cached results
+    file) — but the model sometimes writes its own citation/disclaimer
+    anyway, the same unreliable-prose-compliance class of risk already
+    documented for issue #27/#31. Found live 2026-09-03: that self-
+    authored text rendered as plain body, undimmed, indistinguishable
+    from the actual response — worth the same visual treatment
+    `_split_footer` already gives an engine-appended footer.
+
+    `DISCLAIMER`'s own text is long and fixed, so finding it verbatim is
+    a safe anchor — it appearing by coincidence in ordinary prose is
+    effectively impossible. If the paragraph immediately before it starts
+    with "**Sources" (the same convention the engine's own footer and
+    every skill's SKILL.md both use for a self-authored citation the
+    model wrote despite being told not to), that paragraph is folded in
+    too, so the citation and disclaimer dim as one block rather than
+    splitting the disclaimer out with an undimmed citation line still
+    sitting above it. Returns -1 (nothing self-authored found) when
+    `DISCLAIMER` doesn't appear in `full_text` at all.
+    """
+    d_idx = full_text.find(DISCLAIMER)
+    if d_idx == -1:
+        return -1
+    before = full_text[:d_idx]
+    boundary = before.rstrip().rfind("\n\n")
+    candidate_start = boundary + 2 if boundary != -1 else 0
+    if before[candidate_start:].strip().startswith("**Sources"):
+        return candidate_start
+    return d_idx
+
+
 def _split_footer(full_text: str) -> tuple[str, str]:
     """Splits the engine-appended Sources footer or bare disclaimer (always
     starting with `FOOTER_MARKER` or `DISCLAIMER_ONLY_FOOTER` respectively,
     when present — see engine/sources_footer.py) off the model's own text,
-    so #38/#39/#65's rendering can treat them separately. `("", full_text)`-
-    shaped only if `full_text` itself starts with the marker (no model text
-    at all this turn, unusual but not invalid)."""
+    so #38/#39/#65's rendering can treat them separately. Falls back to
+    `_find_self_authored_footer_start` (issue #70) when neither engine
+    marker is present, so a footer/disclaimer the model wrote itself still
+    gets split out rather than staying folded into the main response.
+    `("", full_text)`-shaped only if `full_text` itself starts with the
+    marker (no model text at all this turn, unusual but not invalid)."""
     idx = full_text.find(FOOTER_MARKER)
     if idx == -1:
         idx = full_text.find(DISCLAIMER_ONLY_FOOTER)
+    if idx == -1:
+        idx = _find_self_authored_footer_start(full_text)
     if idx == -1:
         return full_text, ""
     return full_text[:idx], full_text[idx:]
