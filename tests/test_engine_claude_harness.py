@@ -26,13 +26,13 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
 
-    # workspace_notes, memory_candidates, fetch_holdings, holding_lookup, and
-    # identity_check are always added (unlike skill_scripts, which is
-    # conditional) — see cas._build_options — so the guardrail's own denied
-    # server list must include all five too. get_holdings itself is
-    # unconditionally disallowed on top of the guardrail's own denials
-    # (issue #46) — not via GuardrailPolicy, which stays scoped to
-    # order-tool safety only.
+    # workspace_notes, memory_candidates, fetch_holdings, holding_lookup,
+    # identity_check, and feedback_issue are always added (unlike
+    # skill_scripts, which is conditional) — see cas._build_options — so
+    # the guardrail's own denied server list must include all six too.
+    # get_holdings itself is unconditionally disallowed on top of the
+    # guardrail's own denials (issue #46) — not via GuardrailPolicy, which
+    # stays scoped to order-tool safety only.
     expected = tools.guardrail.denied_tool_names(
         [
             *FAKE_MCP_SERVERS.keys(),
@@ -41,10 +41,11 @@ def test_build_options_disallowed_tools_matches_guardrail_policy():
             "fetch_holdings",
             "holding_lookup",
             "identity_check",
+            "feedback_issue",
         ]
     ) | {"mcp__kite_gateway__get_holdings"}
     assert set(options.disallowed_tools) == expected
-    assert len(expected) == 7 * len(ORDER_TOOL_NAMES) + 1
+    assert len(expected) == 8 * len(ORDER_TOOL_NAMES) + 1
 
 
 def test_build_options_passes_mcp_servers_and_skills_through_unchanged():
@@ -164,6 +165,16 @@ def test_build_options_always_adds_memory_candidates_server():
     assert "memory_candidates" in options.mcp_servers
 
 
+def test_build_options_always_adds_feedback_issue_server():
+    # Same unconditional treatment as workspace_notes/memory_candidates —
+    # issue #73's redesigned /feedback reaches file_feedback_issue from an
+    # ordinary conversational review turn, not a per-skill declaration.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+
+    assert "feedback_issue" in options.mcp_servers
+
+
 def test_build_options_defaults_leave_tools_and_buffer_size_unset():
     tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
     options = cas._build_options(tools)
@@ -272,6 +283,17 @@ def test_build_options_sets_browse_workspace_system_prompt():
     options = cas._build_options(tools)
     assert cas._BROWSE_WORKSPACE_SYSTEM_PROMPT in options.system_prompt
     assert "Glob" in cas._BROWSE_WORKSPACE_SYSTEM_PROMPT
+
+
+def test_build_options_sets_feedback_issue_system_prompt():
+    # Issue #73's redesign — file_feedback_issue must only fire at the end
+    # of an explicit /feedback review flow, with share=True gated on a
+    # genuine chat confirmation, never speculatively.
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+    options = cas._build_options(tools)
+    assert cas._FEEDBACK_ISSUE_SYSTEM_PROMPT in options.system_prompt
+    assert "file_feedback_issue" in cas._FEEDBACK_ISSUE_SYSTEM_PROMPT
+    assert "share=True" in cas._FEEDBACK_ISSUE_SYSTEM_PROMPT
 
 
 def test_build_options_wires_a_pretooluse_hook():

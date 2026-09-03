@@ -256,10 +256,22 @@ Type `/feedback <what you want to report>` at any `you>` prompt:
 you> /feedback the Kite login link wasn't clickable in my terminal
 ```
 
-This is local only — it appends a timestamped note to
-`workspace/feedback.md` and nothing is sent anywhere automatically.
-Review that file yourself and file what's worth filing as a GitHub issue
-against [maveriqai/minty-investing](https://github.com/maveriqai/minty-investing/issues).
+Your raw note is always saved locally to `workspace/feedback.md` first.
+Minty then asks whether it can look at this session's own transcript and
+tool-call log for supporting evidence — say yes, and it drafts a
+ticket-shaped report (title + body, citing what actually happened, with
+personal/financial detail redacted unless the bug is specifically about
+it) and shows you the exact text before doing anything else with it.
+
+Separately, Minty asks whether you'd like that report shared with the
+Minty team as a real GitHub issue on
+[maveriqai/minty-investing](https://github.com/maveriqai/minty-investing/issues).
+Say yes and it files it via `gh issue create`, recording the issue URL in
+`workspace/feedback.md`. If `gh` isn't installed or authenticated (or the
+call fails for any other reason), you get the exact `gh issue create`
+command to run yourself instead — nothing is lost either way. Decline the
+evidence-gathering step, or decline sharing, and the note (or drafted
+report) simply stays local in `workspace/feedback.md`.
 
 ## Data sources
 

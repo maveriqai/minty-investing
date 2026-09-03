@@ -112,7 +112,13 @@ input, not reconstructed from partial reads (issue #24).
 `engine/session_transcript.py`) holds one raw transcript per REPL run,
 engine-appended every turn. `workspace/memory_candidates.md` (issue #14,
 `engine/memory_candidates.py`) is the append-then-clear staging file for
-memory-candidate review — see "Model-initiated writes" below. The Zerodha
+memory-candidate review — see "Model-initiated writes" below.
+`workspace/feedback.md` (issue #73, redesigned 2026-09-03,
+`engine/feedback.py`) holds `/feedback` reports: the raw note is always
+written locally the moment the user agrees to analysis, and an
+evidence-backed, redacted draft is additionally filed as a real GitHub
+issue only on a second, separate explicit confirmation to share — see
+"Model-initiated writes" below. The Zerodha
 account identity anchor lives outside the workspace, at install-wide
 `data/account_identity.json` — written once, deterministically, on the
 first successful `kite_gateway.get_profile` call, never overwritten by a
@@ -136,6 +142,19 @@ pending candidates and runs a review turn presenting them for confirm/
 discard before any `update_workspace_notes` call. This pipeline is
 prompt-engineered end to end, not code-enforced the way order-execution
 denial is — see issue #23 for the deferred architectural follow-up.
+
+A third, narrower mechanism: `/feedback <note>` (issue #73,
+`engine/feedback.py` + `engine/feedback_issue.py`) is additionally gated
+by a real, code-enforced native confirm (`_confirm`,
+`engine/interactive.py`) *before* the model ever sees the session's own
+transcript as evidence — neither of the two mechanisms above has an
+equivalent code-level gate that early. Once past that, the rest is the
+same prompt-engineered trust model as piece 2: a system-authored review
+turn drafts a redacted, ticket-shaped report and shows it verbatim, then
+only calls `file_feedback_issue` (which shells out to `gh issue create`)
+after a second, separate, explicit "share with the team?" confirmation
+in chat — `share=False` still saves the draft locally. Same issue #23
+limitation applies to that second confirmation.
 
 ## Non-Negotiable Product Rules
 

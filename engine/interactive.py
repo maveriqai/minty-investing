@@ -22,7 +22,13 @@ from engine.claude_login import ensure_logged_in
 from engine.config import build_tool_config
 from engine.diagnostics import emit as _emit
 from engine.engine_log import new_engine_log_path
-from engine.feedback import FEEDBACK_COMMAND_PREFIX, append_feedback
+from engine.feedback import (
+    FEEDBACK_COMMAND_PREFIX,
+    append_feedback,
+    build_feedback_review_prompt,
+    read_tool_call_evidence,
+    read_transcript_evidence,
+)
 from engine.harnesses.base import Harness, ToolConfig
 from engine.harnesses.claude_agent_sdk import ClaudeAgentSDKHarness
 from engine.kite_status import kite_connection_status_line
@@ -41,6 +47,22 @@ from engine.workspace import (
 from engine.workspace import augment_prompt_with_workspace as _augment_with_workspace
 
 _EXIT_COMMANDS = {"exit", "quit", ":q"}
+
+
+async def _confirm(prompt_text: str) -> bool:
+    """The one native, code-enforced consent gate in the redesigned
+    `/feedback` flow (issue #73) — "may I even look at this session's
+    transcript?", asked before any model call happens at all. EOF (e.g.
+    piped/non-interactive input) reads as a decline, not a hang or a crash
+    — same fail-closed spirit as everything else gating a write in this
+    module."""
+    try:
+        answer = await asyncio.to_thread(input, prompt_text)
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 # One shared Console — rich auto-detects a non-tty stdout (piped/redirected)
 # and degrades to plain text on its own, so `engine/run.py`'s single-shot
 # path (which never touches this module) and a piped `minty` invocation
@@ -630,9 +652,44 @@ async def _repl(harness: Harness, workspace_root: Path) -> int:
                 note = prompt[len(FEEDBACK_COMMAND_PREFIX) :].strip()
                 if not note:
                     print("Usage: /feedback <what you want to report> — e.g. /feedback the login link wasn't clickable")
-                else:
+                    continue
+                if not await _confirm(
+                    "Look at this session's transcript and tool-call log for supporting "
+                    "evidence before drafting a report? [y/N] "
+                ):
                     path = append_feedback(workspace_root, note)
                     print(f"Saved to {path} — local only, nothing sent anywhere automatically.")
+                    continue
+                # Deterministic safety net, unconditional: the raw note
+                # lands here the moment analysis is agreed to, before the
+                # review turn below even runs — prose compliance isn't
+                # guaranteed anywhere else in this engine either (issues
+                # #27/#31/#39/#70), so requirement 9's "local record
+                # regardless" must not depend on the model actually calling
+                # file_feedback_issue by the end of the turn.
+                append_feedback(workspace_root, note)
+                review_prompt = build_feedback_review_prompt(
+                    note,
+                    read_transcript_evidence(transcript_path),
+                    read_tool_call_evidence(audit_log_path),
+                )
+                print("minty> ")
+                with _suspend_input_echo():
+                    await _run_turn(
+                        session,
+                        review_prompt,
+                        workspace_root=workspace_root,
+                        skill_names=skill_names,
+                        transcript_path=transcript_path,
+                        transcript_speaker="system",
+                        audit_log_path=audit_log_path,
+                        engine_log_path=engine_log_path,
+                        # No force_disclaimer here, unlike the memory-
+                        # candidate review turn above — a bug report about
+                        # Minty itself isn't money-adjacent content, so the
+                        # SEBI disclaimer doesn't apply. Deliberate
+                        # divergence from that precedent, not an oversight.
+                    )
                 continue
             print("minty> ")
             with _suspend_input_echo():

@@ -68,6 +68,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 from claude_agent_sdk.types import PostToolUseHookInput, PreToolUseHookInput
 
 from engine import skills
+from engine.feedback_issue import build_feedback_issue_server
 from engine.guardrail import tool_name_suffix
 from engine.harnesses.base import EngineResult, ToolConfig
 from engine.holding_lookup import build_holding_lookup_server
@@ -94,6 +95,7 @@ _MEMORY_CANDIDATES_SERVER_NAME = "memory_candidates"
 _FETCH_HOLDINGS_SERVER_NAME = "fetch_holdings"
 _HOLDING_LOOKUP_SERVER_NAME = "holding_lookup"
 _IDENTITY_CHECK_SERVER_NAME = "identity_check"
+_FEEDBACK_ISSUE_SERVER_NAME = "feedback_issue"
 
 # Blocked unconditionally, everywhere — not via GuardrailPolicy (that's
 # scoped to the no-order-execution guarantee only): a full account's
@@ -292,10 +294,37 @@ _BROWSE_WORKSPACE_SYSTEM_PROMPT = (
     "whatever's relevant before replying."
 )
 
+# Issue #73's redesign: `file_feedback_issue` (engine/feedback_issue.py)
+# is registered unconditionally, same as update_workspace_notes/
+# stage_memory_candidate — nothing in the tool inventory itself stops the
+# model calling it on a whim in an ordinary chat turn. The actual gate is
+# this instruction plus the review-turn structure `/feedback`'s dispatch
+# (engine/interactive.py) already builds: by the time this tool is ever
+# reachable in practice, the model has already shown the user a drafted
+# title/body and the user has already agreed, in chat, to let the session's
+# own transcript be analyzed in the first place (a separate, code-enforced
+# native confirm upstream of any of this — see `_confirm`,
+# engine/interactive.py). Same prompt-engineered trust model as the
+# memory-candidate pipeline above, and the same accepted limitation
+# (issue #23) — there's no code-level check here that a share confirmation
+# genuinely happened.
+_FEEDBACK_ISSUE_SYSTEM_PROMPT = (
+    "Only call file_feedback_issue as the last step of an explicit "
+    "/feedback flow the engine has already introduced via a "
+    "system-authored review turn — never on your own initiative in an "
+    "ordinary chat turn, even if the user describes a bug or complaint in "
+    "passing. Even inside that flow, pass share=True only if the user "
+    "just gave an explicit affirmative answer, in this conversation, to "
+    "being asked whether to share this specific report with the Minty "
+    "team as a real GitHub issue on maveriqai/minty-investing; default to "
+    "share=False otherwise. Call the tool exactly once either way, so the "
+    "report is always saved locally regardless of whether it's shared."
+)
+
 _SYSTEM_PROMPT = (
     f"{_TOPIC_SCOPE_SYSTEM_PROMPT}\n\n{_KITE_LOGIN_SYSTEM_PROMPT}\n\n{_REMEMBER_SYSTEM_PROMPT}"
     f"\n\n{_MEMORY_CANDIDATE_SYSTEM_PROMPT}\n\n{_NEXT_STEP_SYSTEM_PROMPT}\n\n{_OVERSIZED_RESULT_SYSTEM_PROMPT}"
-    f"\n\n{_BROWSE_WORKSPACE_SYSTEM_PROMPT}"
+    f"\n\n{_BROWSE_WORKSPACE_SYSTEM_PROMPT}\n\n{_FEEDBACK_ISSUE_SYSTEM_PROMPT}"
 )
 
 # Confirmed live against a real session-limit-adjacent RateLimitEvent in the
@@ -504,6 +533,12 @@ def _build_options(tools: ToolConfig) -> ClaudeAgentOptions:
     # steps portfolio-health-check/morning-digest/thesis-tracker used to do
     # themselves (issue #48).
     mcp_servers[_IDENTITY_CHECK_SERVER_NAME] = build_identity_check_server(identity_state)
+    # Same unconditional treatment — every session needs the redesigned
+    # /feedback flow's sharing step available, since it's reached from an
+    # ordinary conversational turn (the review turn built by
+    # engine/interactive.py's /feedback dispatch), not a per-skill
+    # declaration (issue #73).
+    mcp_servers[_FEEDBACK_ISSUE_SERVER_NAME] = build_feedback_issue_server()
     if tools.include_staged_tools and staged_skill_names:
         staged_workflows_server = build_staged_workflow_tools_server(staged_skill_names, tools)
         if staged_workflows_server is not None:

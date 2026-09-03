@@ -526,7 +526,44 @@ def test_repl_skips_the_review_turn_when_nothing_is_staged(tmp_path, monkeypatch
     assert session.received_prompts == []
 
 
-def test_repl_feedback_command_saves_locally_without_sending_a_turn(tmp_path, monkeypatch, capsys):
+def test_repl_feedback_command_saves_locally_without_sending_a_turn_on_explicit_decline(
+    tmp_path, monkeypatch, capsys
+):
+    from engine.feedback import feedback_path
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession([], EngineResult(ok=True, text="", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    # First response answers the /feedback command itself, second answers
+    # the "look at the transcript for evidence?" confirm with an explicit no.
+    responses = iter(["/feedback the login link wasn't clickable", "n"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert session.received_prompts == []
+    saved = feedback_path(workspace_root)
+    assert "the login link wasn't clickable" in saved.read_text()
+    assert "Saved to" in capsys.readouterr().out
+
+
+def test_repl_feedback_command_declines_analysis_on_eof_at_the_confirm_prompt(tmp_path, monkeypatch, capsys):
+    # EOF at the confirm gate (e.g. piped/non-interactive input ending
+    # right there) must read as a decline, same as an explicit "n" —
+    # _confirm's own fail-closed behavior, exercised here through the
+    # real REPL dispatch.
     from engine.feedback import feedback_path
     from engine.interactive import _repl
 
@@ -555,6 +592,103 @@ def test_repl_feedback_command_saves_locally_without_sending_a_turn(tmp_path, mo
     assert "Saved to" in capsys.readouterr().out
 
 
+def test_repl_feedback_command_confirmed_analysis_sends_one_system_authored_review_turn(
+    tmp_path, monkeypatch, capsys
+):
+    from engine.feedback import feedback_path
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession(["drafted"], EngineResult(ok=True, text="drafted", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    responses = iter(["/feedback the login link wasn't clickable", "y"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert len(session.received_prompts) == 1
+    sent = session.received_prompts[0]
+    assert "the login link wasn't clickable" in sent
+    assert "(no transcript yet this session)" in sent
+    assert "(no tool calls yet this session)" in sent
+    assert "do not call file_feedback_issue in this turn" in sent.lower()
+    # The raw note is a safety net, written unconditionally the moment
+    # analysis is agreed to — independent of whatever the (fake) session
+    # replies with.
+    assert "the login link wasn't clickable" in feedback_path(workspace_root).read_text()
+
+
+def test_repl_feedback_review_turn_is_labeled_system_in_the_transcript(tmp_path, monkeypatch):
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession(["drafted"], EngineResult(ok=True, text="drafted", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    responses = iter(["/feedback something broke", "y"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    transcript_files = list((workspace_root / "sessions").glob("*.md"))
+    assert len(transcript_files) == 1
+    text = transcript_files[0].read_text()
+    assert "## system (" in text
+
+
+def test_repl_feedback_evidence_includes_the_current_sessions_own_prior_turn(tmp_path, monkeypatch):
+    # Proves the review prompt is built from the real transcript_path file
+    # this session has been writing to, not a stub — seed one ordinary
+    # turn first, then confirm its text shows up as evidence.
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    session = _FakeSession(
+        ["hello there"], EngineResult(ok=True, text="hello there", error_kind=None, raw=None)
+    )
+    harness = _FakeHarness(session)
+    responses = iter(["hello", "/feedback something broke", "y"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    assert len(session.received_prompts) == 2
+    review_prompt = session.received_prompts[1]
+    assert "hello there" in review_prompt
+
+
 def test_repl_feedback_command_with_no_note_shows_usage_and_saves_nothing(tmp_path, monkeypatch, capsys):
     from engine.feedback import feedback_path
     from engine.interactive import _repl
@@ -581,6 +715,52 @@ def test_repl_feedback_command_with_no_note_shows_usage_and_saves_nothing(tmp_pa
     assert session.received_prompts == []
     assert not feedback_path(workspace_root).exists()
     assert "Usage: /feedback" in capsys.readouterr().out
+
+
+def test_repl_ordinary_chat_turns_never_touch_the_feedback_confirm_or_review_prompt(
+    tmp_path, monkeypatch, capsys
+):
+    # Regression coverage for the /feedback redesign touching _repl's main
+    # loop: a prompt that isn't /feedback must never call _confirm or
+    # build_feedback_review_prompt at all.
+    import engine.interactive as interactive_module
+    from engine.interactive import _repl
+
+    _isolate_watch_roots(tmp_path, monkeypatch)
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "data").mkdir(parents=True)
+    (workspace_root / "results").mkdir(parents=True)
+
+    async def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("_confirm must not be called for an ordinary chat turn")
+
+    def _fail_if_called_sync(*_args, **_kwargs):
+        raise AssertionError("build_feedback_review_prompt must not be called for an ordinary chat turn")
+
+    monkeypatch.setattr(interactive_module, "_confirm", _fail_if_called)
+    monkeypatch.setattr(interactive_module, "build_feedback_review_prompt", _fail_if_called_sync)
+
+    session = _FakeSession(["hi there"], EngineResult(ok=True, text="hi there", error_kind=None, raw=None))
+    harness = _FakeHarness(session)
+    responses = iter(["hello", "how are you"])
+
+    def _fake_input(*_args, **_kwargs):
+        try:
+            return next(responses)
+        except StopIteration:
+            raise EOFError
+
+    monkeypatch.setattr("builtins.input", _fake_input)
+
+    asyncio.run(_repl(harness, workspace_root))
+
+    # Ordinary turns get the usual workspace-path prefix (_augment_with_
+    # workspace) — unaffected by the /feedback redesign; the point of this
+    # test is that _confirm/build_feedback_review_prompt were never called
+    # at all (the monkeypatches above would have raised if they had).
+    assert len(session.received_prompts) == 2
+    assert session.received_prompts[0].endswith("hello")
+    assert session.received_prompts[1].endswith("how are you")
 
 
 def test_repl_fences_staged_candidate_content_as_data_not_instructions(tmp_path, monkeypatch):
