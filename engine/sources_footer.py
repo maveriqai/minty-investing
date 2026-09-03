@@ -69,6 +69,18 @@ _ITEMIZE_THRESHOLD = 5
 # find it without duplicating this string.
 FOOTER_MARKER = "\n\n---\n**Sources**"
 
+# A standalone disclaimer, no Sources list, for a turn that discusses
+# already-grounded findings (cited inline from an earlier turn/session)
+# but made no fresh captures of its own — `build_footer` above correctly
+# returns "" for that case (nothing new to cite), but the review turn for
+# issue #14's staged-candidates pipeline still needs the disclaimer, since
+# it's discussing money-adjacent figures (issue #65). `ClaudeSession.send`
+# yields this verbatim when `force_disclaimer=True` and the normal
+# captures-based footer didn't already fire; `_split_footer`
+# (engine/interactive.py) recognizes it the same way it recognizes
+# FOOTER_MARKER, so it gets the same distinct rendering treatment.
+DISCLAIMER_ONLY_FOOTER = f"\n\n---\n*{DISCLAIMER}*\n"
+
 
 def _label(mcp_server: str) -> str:
     return _SOURCE_LABELS.get(mcp_server, mcp_server)
@@ -126,4 +138,4 @@ def build_footer(captures: list[tuple[str, str, Path]], *, as_of: str, workspace
     return FOOTER_MARKER + "\n" + "\n".join(lines) + f"\n\n*{DISCLAIMER}*\n"
 
 
-__all__ = ["DISCLAIMER", "FOOTER_MARKER", "build_footer"]
+__all__ = ["DISCLAIMER", "DISCLAIMER_ONLY_FOOTER", "FOOTER_MARKER", "build_footer"]

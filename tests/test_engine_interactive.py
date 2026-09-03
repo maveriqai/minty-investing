@@ -380,3 +380,17 @@ def test_split_footer_returns_the_whole_text_when_no_footer_present():
 
     assert model_text == "Just a plain chat reply."
     assert footer_text == ""
+
+
+def test_split_footer_separates_model_text_from_a_bare_disclaimer():
+    """Issue #65: force_disclaimer yields DISCLAIMER_ONLY_FOOTER (no Sources
+    list) rather than a full build_footer output — _split_footer must
+    recognize that shape too, not just the FOOTER_MARKER one."""
+    from engine.sources_footer import DISCLAIMER_ONLY_FOOTER
+
+    full_text = "Here's what's staged for review." + DISCLAIMER_ONLY_FOOTER
+
+    model_text, footer_text = _split_footer(full_text)
+
+    assert model_text == "Here's what's staged for review."
+    assert footer_text == DISCLAIMER_ONLY_FOOTER

@@ -76,7 +76,7 @@ from engine.identity_check import build_identity_check_server
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
-from engine.sources_footer import DISCLAIMER, build_footer
+from engine.sources_footer import DISCLAIMER, DISCLAIMER_ONLY_FOOTER, build_footer
 from engine.staged_skill_tools import (
     STAGED_WORKFLOWS_SERVER_NAME,
     build_staged_workflow_tools_server,
@@ -631,6 +631,7 @@ class ClaudeSession:
         *,
         workspace_root: Path | None = None,
         engine_log_path: Path | None = None,
+        force_disclaimer: bool = False,
     ) -> AsyncIterator[str]:
         """`workspace_root`, when given, turns on auto-capture: every Layer-2
         MCP tool result this turn produces is saved to the workspace's
@@ -654,6 +655,15 @@ class ClaudeSession:
         rather than trusting the instruction alone. A turn that captured
         nothing (plain chat, a workspace-less turn) gets no footer either
         way — see `build_footer`'s own docstring.
+
+        `force_disclaimer`, when set, still appends the bare SEBI
+        disclaimer (`DISCLAIMER_ONLY_FOOTER`, no Sources list) even when
+        this turn captured nothing itself — for a turn that discusses
+        already-grounded, money-adjacent findings cited from an earlier
+        turn/session (e.g. `_repl`'s staged-memory-candidate review, issue
+        #65) rather than fresh tool results. A no-op if the normal
+        captures-based footer already fired, or the model already wrote
+        its own disclaimer — same de-duplication as the normal case.
 
         Resets this session's per-turn tool-call counter (see
         engine/tool_budget.py) before sending — a skill's declared call
@@ -820,6 +830,8 @@ class ClaudeSession:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
                 yield footer
+        elif staged_output is None and force_disclaimer and not already_has_disclaimer:
+            yield DISCLAIMER_ONLY_FOOTER
 
 
 class ClaudeAgentSDKHarness:

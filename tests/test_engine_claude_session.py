@@ -113,6 +113,67 @@ def test_send_appends_sources_footer_when_workspace_root_set_and_something_captu
     ]
 
 
+def test_send_force_disclaimer_appends_bare_disclaimer_when_nothing_captured(tmp_path):
+    """Issue #65: the memory-candidate review turn discusses findings
+    already grounded in an earlier turn/session, so it makes no fresh
+    captures itself — the normal captures-based footer never fires, but
+    force_disclaimer should still get the SEBI disclaimer attached, with
+    no Sources list (there's nothing new to itemize)."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[TextBlock(text="Here's what's staged for review.")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "review staged candidates", workspace_root=tmp_path, force_disclaimer=True)
+
+    full_text = "".join(chunks)
+    assert DISCLAIMER in full_text
+    assert "**Sources**" not in full_text
+
+
+def test_send_force_disclaimer_is_a_noop_when_disclaimer_already_present(tmp_path):
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[TextBlock(text=f"Here's what's staged.\n\n---\n{DISCLAIMER}\n")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "review staged candidates", workspace_root=tmp_path, force_disclaimer=True)
+
+    full_text = "".join(chunks)
+    assert full_text.count(DISCLAIMER) == 1
+
+
+def test_send_force_disclaimer_does_not_duplicate_a_real_footer(tmp_path):
+    """When this turn did capture something, the normal Sources-footer
+    branch already appends the disclaimer as part of it — force_disclaimer
+    must not additionally append the bare disclaimer on top."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[
+            TextBlock(text="checking surveillance..."),
+            ToolUseBlock(id="t1", name="mcp__india_filings__get_surveillance_list", input={"list_type": "ASM"}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "x", "as_of": "2026-08-18", "data": []}')
+        ]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "scan for surveillance flags", workspace_root=tmp_path, force_disclaimer=True)
+
+    full_text = "".join(chunks)
+    assert full_text.count(DISCLAIMER) == 1
+    assert full_text.count("**Sources**") == 1
+
+
 def test_send_skips_footer_when_model_already_wrote_the_disclaimer(tmp_path):
     """Every skill's SKILL.md says not to compose its own closing footer —
     but that's a prose instruction the model doesn't reliably follow

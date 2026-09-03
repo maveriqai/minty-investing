@@ -159,7 +159,7 @@ class _FakeSession:
         self.last_over_budget = last_over_budget or []
         self.received_prompts: list[str] = []
 
-    async def send(self, prompt: str, *, workspace_root=None, engine_log_path=None):
+    async def send(self, prompt: str, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
         self.received_prompts.append(prompt)
         for chunk in self._chunks:
             yield chunk
@@ -302,7 +302,7 @@ def test_run_turn_reports_files_that_changed_but_match_no_known_skill(tmp_path, 
     (workspace_root / "results").mkdir(parents=True)
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
         (workspace_root / "results" / "written_during_turn.md").write_text("evidence")
         for chunk in ["ok"]:
             yield chunk
@@ -336,7 +336,7 @@ def test_run_turn_reports_a_match_against_a_skills_declared_pattern(tmp_path, mo
 
     session = _FakeSession(["ok"], EngineResult(ok=True, text="ok", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
         from engine.time_ist import today_ist
 
         today = today_ist()
@@ -381,7 +381,7 @@ def test_run_turn_saves_composed_text_to_a_skills_declared_md_output(tmp_path, m
 
     session = _FakeSession(["ignored"], EngineResult(ok=True, text="ignored", error_kind=None, raw=None))
 
-    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None):
+    async def _send_and_write(prompt, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
         (workspace_root / "results" / f"digest_{today}.json").write_text("{}")
         for chunk in ["# Morning Digest\n", "Portfolio is up.\n"]:
             yield chunk
@@ -536,7 +536,7 @@ class _RaisingSession:
         self.last_result = None
         self.last_over_budget: list[str] = []
 
-    async def send(self, prompt, *, workspace_root=None, engine_log_path=None):
+    async def send(self, prompt, *, workspace_root=None, engine_log_path=None, force_disclaimer=False):
         raise RuntimeError("transient failure")
         yield  # pragma: no cover — unreachable, makes this an async generator
 
