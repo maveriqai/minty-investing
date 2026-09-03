@@ -708,6 +708,22 @@ class ClaudeSession:
         captures-based footer already fired, or the model already wrote
         its own disclaimer — same de-duplication as the normal case.
 
+        Issue #70 (found live re-verifying the fix above): the same bare
+        disclaimer also fires automatically whenever this turn made *any*
+        tool call at all, not just `force_disclaimer` or a Layer-2 capture
+        — `captures` only ever reflects raw Layer-2 MCP results
+        (`tool_capture.CAPTURE_SPECS`), so a turn built entirely from
+        Minty's own internal tools (`fetch_holdings`, `run_health_check`,
+        `check_identity_match`) never trips the normal branch above,
+        regardless of how much real portfolio data it actually touched.
+        Live-tested: a "what are my holdings" reply built purely from
+        those tools shipped with zero disclaimer at all, not even a
+        self-authored one, on a real P&L/holdings breakdown — worse than
+        the styling gap #70 first found. `tool_calls` (this turn's full
+        record, successes and errors alike) is a reliable, already-
+        computed signal that real activity happened, independent of
+        whether any of it happened to be capture-worthy.
+
         Resets this session's per-turn tool-call counter (see
         engine/tool_budget.py) before sending — a skill's declared call
         expectation (e.g. morning-digest's india_news.get_news count)
@@ -873,7 +889,11 @@ class ClaudeSession:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
                 yield footer
-        elif staged_output is None and force_disclaimer and not already_has_disclaimer:
+        elif (
+            staged_output is None
+            and not already_has_disclaimer
+            and (force_disclaimer or (workspace_root is not None and tool_calls))
+        ):
             yield DISCLAIMER_ONLY_FOOTER
 
 

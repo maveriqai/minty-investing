@@ -174,6 +174,73 @@ def test_send_force_disclaimer_does_not_duplicate_a_real_footer(tmp_path):
     assert full_text.count("**Sources**") == 1
 
 
+def test_send_appends_bare_disclaimer_when_a_tool_call_isnt_capture_worthy(tmp_path):
+    """Issue #70 (found live re-verifying the earlier fix): `captures`
+    only ever reflects raw Layer-2 MCP results — a turn built entirely
+    from Minty's own internal tools (fetch_holdings, run_health_check,
+    check_identity_match) never trips the normal captures-based branch,
+    regardless of how much real portfolio data it touched. A real "what
+    are my holdings" reply shipped with zero disclaimer at all this way.
+    Any tool call at all (not just a capture-worthy one) should now be
+    enough to force the bare disclaimer, without force_disclaimer set."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[
+            TextBlock(text="Here's your holdings."),
+            ToolUseBlock(id="t1", name="mcp__fetch_holdings__fetch_holdings", input={}),
+        ]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="wrote holdings_2026-09-03.json — 96 holdings")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "what are my holdings", workspace_root=tmp_path)
+
+    full_text = "".join(chunks)
+    assert DISCLAIMER in full_text
+    assert "**Sources**" not in full_text
+    assert session.last_captures == []
+
+
+def test_send_appends_no_disclaimer_when_nothing_happened_this_turn(tmp_path):
+    """Guards against over-triggering: a plain chit-chat turn with zero
+    tool calls and no force_disclaimer must stay exactly as before —
+    build_footer's own "nothing to cite" reasoning still holds when
+    nothing was actually done this turn."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[TextBlock(text="Hi there!")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "hi", workspace_root=tmp_path)
+
+    full_text = "".join(chunks)
+    assert DISCLAIMER not in full_text
+
+
+def test_send_appends_no_disclaimer_for_tool_calls_when_workspace_root_unset(tmp_path):
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[
+            TextBlock(text="checking..."),
+            ToolUseBlock(id="t1", name="mcp__fetch_holdings__fetch_holdings", input={}),
+        ]),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="wrote holdings_2026-09-03.json — 96 holdings")]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "what are my holdings")
+
+    full_text = "".join(chunks)
+    assert DISCLAIMER not in full_text
+
+
 def test_send_skips_footer_when_model_already_wrote_the_disclaimer(tmp_path):
     """Every skill's SKILL.md says not to compose its own closing footer —
     but that's a prose instruction the model doesn't reliably follow
