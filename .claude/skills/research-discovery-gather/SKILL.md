@@ -83,7 +83,10 @@ stages:
 
       Your reply text for this stage *is* the actual deliverable the user
       sees (research-discovery's step 4 relays it verbatim) — write the
-      full brief here, not a report about what you did. Don't write your
+      full brief here, not a report about what you did. Mention which
+      research/ file(s) you saved this into — a short line like "saved to
+      `research/sectors/<slug>.md`" — so the user knows it happened
+      without having to already know to look (issue #68). Don't write your
       own Sources footer or SEBI disclaimer; the engine appends both
       automatically once this stage's text is complete.
     produces:

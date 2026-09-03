@@ -151,6 +151,10 @@ morning-digest/portfolio-health-check/thesis-tracker require.
     `research/sectors/<industry-slug>.md` and `content` set to the full
     merged file. This is a durable summary only — the full ranked table
     stays in `results/`, which is `results/`'s job, not this file's.
+    Mention this save in your reply — a short line like "saved to
+    `research/sectors/<industry-slug>.md`" — so the user knows it happened
+    without having to already know to look (issue #68: this write was
+    silent in a live test, and a user reasonably expected to see it).
 
 ## Guardrails
 

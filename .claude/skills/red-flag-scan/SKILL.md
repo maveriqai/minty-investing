@@ -129,7 +129,11 @@ evidence and lets the user weigh it, it never asserts wrongdoing.
    Leave any `## Findings` section from a prior `research-discovery` run
    untouched — never overwrite existing content, only append. Call
    `update_workspace_notes` with `target` set to `research/stocks/
-   <SYMBOL>.md` and `content` set to the full merged file.
+   <SYMBOL>.md` and `content` set to the full merged file. Mention this
+   save in your reply — a short line like "saved to
+   `research/stocks/<SYMBOL>.md`" — so the user knows it happened without
+   having to already know to look (issue #68: this write was silent in a
+   live test, and a user reasonably expected to see it).
 
 8. **Don't write your own Sources footer or SEBI disclaimer.** The engine
    appends both automatically — built from whatever was actually captured

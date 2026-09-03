@@ -96,7 +96,9 @@ regardless of which broker it came from.
    yet. Then call the `update_workspace_notes` tool (not `Write`) with
    `workspace_root` and the full merged content — it always saves to
    `notes.md` in the workspace root, so there's no risk of inventing a
-   different filename or location for it.
+   different filename or location for it. Mention this save in your reply
+   — a short line like "saved to `notes.md`" — so the user knows it
+   happened (issue #68).
 
 6. **Don't write your own Sources footer or SEBI disclaimer.** The engine
    appends both automatically — built from whatever was actually captured
