@@ -411,11 +411,22 @@ def _render_reply(full_text: str) -> None:
     the engine appends, not part of what the model said, and a screenshot
     from live testing showed the two reading as indistinguishable prose.
 
+    A self-authored footer (`_find_self_authored_footer_start`) has no
+    fixed engine-appended shape, so unlike the normal case, a model's own
+    trailing `Next: ...` line can end up inside `footer_text` rather than
+    `model_text` — the model writes the whole thing (citation, disclaimer,
+    then its closing `Next:` line) as one uninterrupted block. Tried again
+    against `footer_text` when the first pass on `model_text` finds
+    nothing, so the `Next:` line still gets pulled into its own panel
+    instead of staying stuck inside the dimmed footer.
+
     Purely a terminal-presentation step — `full_text` itself, unmodified,
     is still what's written to the transcript/audit log/changed-files
     report by `_run_turn`."""
     model_text, footer_text = _split_footer(full_text)
     body, next_step = _extract_next_step(model_text)
+    if next_step is None:
+        footer_text, next_step = _extract_next_step(footer_text)
     if body.strip():
         _console.print(Markdown(body))
     if footer_text.strip():

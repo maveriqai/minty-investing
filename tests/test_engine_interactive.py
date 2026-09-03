@@ -15,6 +15,7 @@ import engine.interactive as interactive_module
 import engine.skills as skills_module
 from engine.interactive import (
     _extract_next_step,
+    _render_reply,
     _report_changed_files,
     _save_composed_outputs,
     _split_footer,
@@ -443,3 +444,28 @@ def test_split_footer_self_authored_fallback_never_fires_when_no_disclaimer_pres
 
     assert model_text == full_text
     assert footer_text == ""
+
+
+def test_render_reply_pulls_a_trailing_next_line_out_of_a_self_authored_footer(capsys):
+    """A self-authored footer has no fixed engine-appended shape, so the
+    model's own trailing `Next: ...` line ends up inside footer_text after
+    _split_footer's fallback (issue #70) rather than model_text — found
+    live 2026-09-03 retesting the fix: "what are my holdings" answered
+    from cached data, wrote its own Sources/disclaimer, then its own
+    Next: line right after. Must still land in its own panel, not stay
+    stuck inside the dimmed footer block."""
+    from engine.sources_footer import DISCLAIMER
+
+    full_text = (
+        "Here's your holdings snapshot.\n\n"
+        "**Sources:** Kite holdings snapshot (`workspace/data/holdings_2026-09-03.json`).\n\n"
+        f"{DISCLAIMER}\n\n"
+        "Next: Want the full list, or a deeper look at CUPID?"
+    )
+
+    _render_reply(full_text)
+
+    out = capsys.readouterr().out
+    assert "Next: Want the full list" not in out
+    assert "Want the full list, or a deeper look at CUPID?" in out
+    assert "Next" in out
