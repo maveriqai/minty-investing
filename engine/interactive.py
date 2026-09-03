@@ -427,9 +427,18 @@ def _render_reply(full_text: str) -> None:
     body, next_step = _extract_next_step(model_text)
     if next_step is None:
         footer_text, next_step = _extract_next_step(footer_text)
-    if body.strip():
+    has_body = bool(body.strip())
+    if has_body:
         _console.print(Markdown(body))
     if footer_text.strip():
+        # A blank line between the body and the dimmed footer — Markdown
+        # collapses trailing/leading blank lines within each of the two
+        # separate print() calls above, so without this they read as
+        # running directly into each other (found live 2026-09-03,
+        # screenshot showed the disclaimer sitting immediately under the
+        # last body line with no visual gap at all).
+        if has_body:
+            _console.print()
         _console.print(Markdown(footer_text), style="dim italic")
     if next_step:
         _console.print(Panel(next_step, title="Next", border_style="cyan"))

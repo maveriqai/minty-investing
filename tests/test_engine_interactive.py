@@ -469,3 +469,25 @@ def test_render_reply_pulls_a_trailing_next_line_out_of_a_self_authored_footer(c
     assert "Next: Want the full list" not in out
     assert "Want the full list, or a deeper look at CUPID?" in out
     assert "Next" in out
+
+
+def test_render_reply_puts_a_blank_line_between_body_and_footer(capsys):
+    """Live-tested 2026-09-03: a screenshot showed the dimmed footer
+    sitting immediately under the last body line with no visual gap at
+    all — two separate console.print() calls don't add spacing on their
+    own, so this needs an explicit blank print() between them."""
+    from engine.sources_footer import DISCLAIMER
+
+    full_text = f"Here's the body's last line.\n\n{DISCLAIMER}"
+
+    _render_reply(full_text)
+
+    out = capsys.readouterr().out
+    body_idx = out.index("Here's the body's last line.")
+    footer_idx = out.index("Minty is a research tool")
+    between = out[body_idx:footer_idx]
+    # Rich terminates the body's own print() with one newline; a genuine
+    # blank line between the two blocks needs a second one from the
+    # explicit blank print() this fix adds — one newline alone (no fix)
+    # means the footer starts on the very next line, no visual gap.
+    assert between.count("\n") == 2
