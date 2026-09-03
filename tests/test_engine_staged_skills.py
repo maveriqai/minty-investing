@@ -705,6 +705,79 @@ def test_compose_and_save_skips_footer_when_final_text_already_has_the_disclaime
     assert "**Sources**" not in full_text
 
 
+def test_compose_and_save_strips_narration_before_the_final_content_marker(tmp_path, monkeypatch, capsys):
+    """Regression test for issue #66: a Glob false-negative's recovery
+    narration leaked verbatim into a saved digest file. The compose
+    stage's own text can include the marker to mark where the real
+    deliverable starts; anything before it must be discarded, not saved."""
+    import engine.skills as skills_module
+
+    skills_root = tmp_path / ".claude" / "skills"
+    skill_dir = skills_root / "morning-digest"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: morning-digest\ndescription: test\n'
+        'expected_outputs:\n  - "{workspace}/results/digest_{date}.md"\n---\n'
+    )
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
+
+    workspace_root = tmp_path / "workspaces" / "daily"
+    (workspace_root / "results").mkdir(parents=True)
+    (workspace_root / "data").mkdir(parents=True)
+
+    from engine.time_ist import today_ist
+
+    final_text = (
+        "The files exist — my earlier glob just used the wrong relative "
+        "path. Let me read the index quote and FII/DII data.\n\n"
+        "<!-- minty:compose-final -->\n"
+        "# Morning Digest\nAll good."
+    )
+    full_text = staged_skills.compose_and_save(
+        final_text,
+        [("india_price", "get_quote", workspace_root / "data" / "live_quotes.json")],
+        skill_name="morning-digest",
+        workspace_root=workspace_root,
+    )
+
+    assert full_text.startswith("# Morning Digest\nAll good.")
+    assert "glob just used the wrong relative path" not in full_text
+    saved = workspace_root / "results" / f"digest_{today_ist()}.md"
+    assert "glob just used the wrong relative path" not in saved.read_text()
+    assert "[compose]" not in capsys.readouterr().out
+
+
+def test_compose_and_save_falls_back_to_full_text_with_a_diagnostic_when_marker_missing(
+    tmp_path, monkeypatch, capsys
+):
+    import engine.skills as skills_module
+
+    skills_root = tmp_path / ".claude" / "skills"
+    skill_dir = skills_root / "morning-digest"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        '---\nname: morning-digest\ndescription: test\n'
+        'expected_outputs:\n  - "{workspace}/results/digest_{date}.md"\n---\n'
+    )
+    monkeypatch.setattr(skills_module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(skills_module, "SKILLS_ROOT", skills_root)
+
+    workspace_root = tmp_path / "workspaces" / "daily"
+    (workspace_root / "results").mkdir(parents=True)
+    (workspace_root / "data").mkdir(parents=True)
+
+    full_text = staged_skills.compose_and_save(
+        "# Digest\nAll good.",
+        [("india_price", "get_quote", workspace_root / "data" / "live_quotes.json")],
+        skill_name="morning-digest",
+        workspace_root=workspace_root,
+    )
+
+    assert full_text.startswith("# Digest\nAll good.")
+    assert "didn't emit the" in capsys.readouterr().out
+
+
 def test_compose_and_save_is_a_noop_when_final_text_is_blank(tmp_path, monkeypatch):
     import engine.skills as skills_module
 

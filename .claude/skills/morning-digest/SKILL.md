@@ -96,6 +96,15 @@ stages:
       morning digest brief per step 9's structure. Any file listed below as
       missing means that stage failed — say so explicitly in the relevant
       section instead of omitting it or guessing at its contents.
+
+      If reading a result file doesn't work on the first try (a bad path,
+      an empty result, anything), retry it — but keep that entirely out of
+      your reply. Right before you start writing the actual brief, output
+      the literal line `<!-- minty:compose-final -->` on its own line, then
+      the brief itself starting on the next line. The engine saves only
+      what comes after that marker (issue #66) — anything before it,
+      including any retry narration, is discarded, so put nothing you want
+      the user to see before it.
     needs:
       - "{workspace}/results/digest_{date}.json"
       - "{workspace}/results/surveillance_flags_{date}.json"

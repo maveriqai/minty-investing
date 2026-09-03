@@ -36,6 +36,23 @@ from engine.time_ist import today_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import augment_prompt_with_workspace
 
+# Issue #66: live-tested 2026-09-02, a Glob false-negative forced the
+# compose stage to narrate its own recovery ("The files exist — my earlier
+# glob just used the wrong relative path...") inline, mid-turn, before it
+# got to the actual digest — that narration is just as much a part of the
+# stage's full turn text as the digest itself (`_run_one_stage` below
+# concatenates every chunk of the turn, same as `_run_turn`'s ordinary
+# chat path), so it landed verbatim as the literal first line of the
+# permanently saved digest_<date>.md. A compose stage's own SKILL.md
+# instructions can ask the model to emit this marker immediately before
+# the real deliverable text starts; `compose_and_save` below then saves
+# only what comes after it, discarding anything (narration, retries,
+# scratch reasoning) that came before. Prose-only, so not guaranteed
+# followed (same class of risk as the disclaimer-omission instruction
+# right below it) — a missing marker falls back to today's full-text
+# behavior with a printed diagnostic, never a silent drop.
+_FINAL_CONTENT_MARKER = "<!-- minty:compose-final -->"
+
 # Subtracted from a staged run's own start time before comparing it to a
 # `needs`/`produces` file's mtime (see `run_staged_skill`'s `min_mtime`
 # use) — absorbs filesystem mtime-rounding and the gap between capturing
@@ -462,11 +479,30 @@ def compose_and_save(
     class of unreliable prose-only compliance already documented for #31),
     so this is the structural backstop: better a stray self-authored
     footer than a visible duplicate of the real one.
+
+    Issue #66: if `final_text` contains `_FINAL_CONTENT_MARKER`, only the
+    text after it is treated as the real deliverable — everything before
+    (tool-recovery narration, retries, scratch reasoning from earlier in
+    the same turn) is discarded rather than saved as if it were content.
+    Falls back to the whole of `final_text`, unchanged, when the marker is
+    absent — printed as a diagnostic, not silently swallowed, since the
+    marker is a prose instruction and this is the expected behavior for
+    any skill/stage that hasn't adopted it yet.
     """
-    footer = "" if DISCLAIMER in final_text else build_footer(
+    content = final_text
+    marker_idx = final_text.find(_FINAL_CONTENT_MARKER)
+    if marker_idx != -1:
+        content = final_text[marker_idx + len(_FINAL_CONTENT_MARKER) :].lstrip("\n")
+    elif final_text.strip():
+        print(
+            f"[compose] {skill_name}'s compose stage didn't emit the "
+            f"{_FINAL_CONTENT_MARKER!r} marker — saving its full turn text "
+            "verbatim, which may include tool-recovery narration (issue #66)."
+        )
+    footer = "" if DISCLAIMER in content else build_footer(
         all_captures, as_of=today_ist(), workspace_root=workspace_root
     )
-    full_text = final_text + footer
+    full_text = content + footer
     if not full_text.strip():
         return full_text
     date = today_ist()
