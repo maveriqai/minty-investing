@@ -207,8 +207,16 @@ history).
    **No active Kite session** (`check_identity_match`/`fetch_holdings`
    fails that way, not a real error): don't stop the stage over it — this session has
    no memory of whether step 0 already asked about it, so just fall back.
-   Glob the workspace's `data/` for the newest existing `holdings_*.json`
-   and use that instead of a fresh fetch; skip the identity check (nothing
+   Glob for the newest existing `holdings_*.json` to use instead of a fresh
+   fetch — call `Glob` with `path` set to the active workspace's own `data`
+   subdirectory (append `/data` to the workspace path from the "[Active
+   workspace: ...]" note) and `pattern` set to the bare filename glob
+   `holdings_*.json` — **do not combine the `data/` segment into the
+   pattern string itself** (e.g. `pattern="data/holdings_*.json"` with
+   `path` set to the workspace root). That combination has been live-
+   verified (issue #79) to silently return zero matches even when the
+   files exist — `path` must point directly at the `data` directory,
+   `pattern` must be filename-only. Then skip the identity check (nothing
    new to compare). Pass that file straight to step 6's `run_digest_math`
    as `holdings_file` — its `quotes_file` argument still gets today's live
    prices from step 4b, so the output keeps today's date and today's
