@@ -7,6 +7,7 @@ ASM-is-nested-buckets vs. GSM-is-a-flat-list shape difference).
 """
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -211,3 +212,30 @@ def test_screener_fundamentals_error_treated_as_missing():
     result = rfc.compute(symbol="STOCKA", fundamentals_screener=broken)
     assert result["flags"] == []
     assert "screener_roe_trend" in result["checks_skipped"]
+
+
+def test_load_missing_path_returns_none_not_crash(tmp_path, capsys):
+    # Regression test: a capture can be documented (a path the caller was
+    # told to use) but never written to disk — e.g. an upstream 404 whose
+    # error envelope engine/tool_capture.py's _is_untrustworthy_capture
+    # silently declined to save. _load must skip it, not raise.
+    missing = tmp_path / "fundamentals_screener_STOCKA_2026-09-02.json"
+    assert rfc._load(str(missing)) is None
+    assert "not found" in capsys.readouterr().err
+
+
+def test_load_corrupted_json_returns_none_not_crash(tmp_path, capsys):
+    bad = tmp_path / "corrupted.json"
+    bad.write_text("{not valid json")
+    assert rfc._load(str(bad)) is None
+    assert "not valid JSON" in capsys.readouterr().err
+
+
+def test_load_none_path_returns_none():
+    assert rfc._load(None) is None
+
+
+def test_load_valid_file_round_trips(tmp_path):
+    good = tmp_path / "fundamentals_STOCKA_2026-09-02.json"
+    good.write_text(json.dumps(_envelope({"debt_to_equity": 30.0})))
+    assert rfc._load(str(good)) == _envelope({"debt_to_equity": 30.0})

@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,31 @@ CURRENT_RATIO_THRESHOLD = 1.0
 # gets). Not sector-adjusted, same caveat as the leverage/liquidity
 # thresholds above.
 ROE_DECLINE_RATIO_THRESHOLD = 0.6
+
+
+def _load(path: str | None) -> dict | None:
+    """Read one captured tool-envelope JSON file, or None if no path was given.
+
+    A path can be documented (passed by the caller) but never actually
+    exist on disk: `engine/tool_capture.py`'s `_is_untrustworthy_capture`
+    silently declines to write a capture whose envelope carries an
+    `"error"` key, so a caller that saw a *tool call* succeed (no
+    `is_error`) but whose envelope was itself an error can still pass a
+    path here that was never written (issue #79's follow-up). Treat that
+    — and a truncated/corrupted capture — the same as an omitted input:
+    skip it, don't crash, matching the honest-gap handling `compute()`
+    already applies to every other missing input.
+    """
+    if not path:
+        return None
+    try:
+        return json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        print(f"warning: {path} not found — treating as omitted", file=sys.stderr)
+        return None
+    except json.JSONDecodeError as exc:
+        print(f"warning: {path} is not valid JSON ({exc}) — treating as omitted", file=sys.stderr)
+        return None
 
 
 def _envelope_data(payload: dict[str, Any] | None) -> Any:
@@ -281,9 +307,6 @@ if __name__ == "__main__":
     parser.add_argument("--fundamentals-screener")
     parser.add_argument("--as-of", default=datetime.now(_IST).strftime("%Y-%m-%d"), help="YYYY-MM-DD, defaults to today")
     args = parser.parse_args()
-
-    def _load(path: str | None) -> dict | None:
-        return json.loads(Path(path).read_text()) if path else None
 
     result = compute(
         symbol=args.symbol,
