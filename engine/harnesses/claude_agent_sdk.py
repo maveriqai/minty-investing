@@ -77,7 +77,12 @@ from engine.identity_check import build_identity_check_server
 from engine.kite_identity import IDENTITY_GATED_TOOLS, IdentityGuardState
 from engine.memory_candidates import build_memory_candidate_server
 from engine.skill_tools import build_skill_tools_server
-from engine.sources_footer import DISCLAIMER, DISCLAIMER_ONLY_FOOTER, build_footer
+from engine.sources_footer import (
+    DISCLAIMER,
+    DISCLAIMER_ONLY_FOOTER,
+    build_footer,
+    has_self_authored_sources_section,
+)
 from engine.staged_skill_tools import (
     STAGED_WORKFLOWS_SERVER_NAME,
     build_staged_workflow_tools_server,
@@ -720,19 +725,30 @@ class ClaudeSession:
         Also mechanically appends a Sources footer + the SEBI disclaimer
         (see engine/sources_footer.py) once the turn's own text is fully
         streamed, if `workspace_root` is set, this turn captured at least
-        one file, and the model's own text doesn't already contain one —
-        docs/vision.md §5 requires both on every grounded output.
-        Originally added because live-testing found the model reliably
-        didn't write either on its own (the same class of dropped-closing-
-        step failure `update_workspace_notes` fixed for notes.md); every
-        skill's SKILL.md was later updated to explicitly say not to write
-        one (issue #27, since appending on top of a self-authored one just
-        duplicates it) — but that's prose, and prose isn't reliably
-        followed either direction (issue #31 found the same), so this
-        checks for the model's own disclaimer text and skips the append
-        rather than trusting the instruction alone. A turn that captured
-        nothing (plain chat, a workspace-less turn) gets no footer either
-        way — see `build_footer`'s own docstring.
+        one file, and the model's own text doesn't already contain a
+        self-authored Sources section — docs/vision.md §5 requires both on
+        every grounded output. Originally added because live-testing found
+        the model reliably didn't write either on its own (the same class
+        of dropped-closing-step failure `update_workspace_notes` fixed for
+        notes.md); every skill's SKILL.md was later updated to explicitly
+        say not to write one (issue #27, since appending on top of a
+        self-authored one just duplicates it) — but that's prose, and
+        prose isn't reliably followed either direction (issue #31 found
+        the same), so this checks for a self-authored `"**Sources**"`
+        section and skips the append only then, rather than trusting the
+        instruction alone. A turn that captured nothing (plain chat, a
+        workspace-less turn) gets no footer either way — see
+        `build_footer`'s own docstring.
+
+        Issue #82: this used to key off the model's own disclaimer *text*
+        (`DISCLAIMER in ...`) rather than a complete Sources section, so a
+        self-authored bare disclaimer with no citations attached — partial
+        compliance with "don't write your own footer" — was misread as
+        "footer already present" and silently discarded this turn's real,
+        captured citations. `has_self_authored_sources_section` only skips
+        the real append when the model's text actually contains its own
+        `"**Sources**"` heading. See issue #86 for the follow-up: this is
+        still a heuristic gate, not a structural fix.
 
         `force_disclaimer`, when set, still appends the bare SEBI
         disclaimer (`DISCLAIMER_ONLY_FOOTER`, no Sources list) even when
@@ -916,17 +932,23 @@ class ClaudeSession:
         # disclaimer itself (issue #27) — but that's a prose instruction,
         # and this codebase has already found (issue #31) that prose
         # instructions aren't reliably followed either direction. This is
-        # the structural backstop: if the model wrote one anyway, appending
-        # a second, correct one on top would still be a visible duplicate
-        # — skip it rather than stack it.
-        already_has_disclaimer = DISCLAIMER in "".join(emitted_parts)
-        if staged_output is None and workspace_root is not None and captures and not already_has_disclaimer:
+        # the structural backstop: if the model wrote its own complete
+        # Sources section anyway, appending a second, correct one on top
+        # would still be a visible duplicate — skip it rather than stack
+        # it. A bare self-authored disclaimer with no citations attached
+        # does NOT count as "already has one" (issue #82: it used to,
+        # via a plain `DISCLAIMER in ...` check, which silently discarded
+        # this turn's real captured citations whenever the model wrote a
+        # disclaimer without a Sources list).
+        emitted_text = "".join(emitted_parts)
+        already_has_sources = has_self_authored_sources_section(emitted_text)
+        if staged_output is None and workspace_root is not None and captures and not already_has_sources:
             footer = build_footer(captures, as_of=today_ist(), workspace_root=workspace_root)
             if footer:
                 yield footer
         elif (
             staged_output is None
-            and not already_has_disclaimer
+            and DISCLAIMER not in emitted_text
             and (force_disclaimer or (workspace_root is not None and tool_calls))
         ):
             yield DISCLAIMER_ONLY_FOOTER

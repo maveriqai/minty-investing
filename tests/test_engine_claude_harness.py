@@ -428,6 +428,168 @@ def test_run_threads_workspace_root_and_folds_the_footer_into_the_returned_text(
     assert "india_price" in result.text
 
 
+def test_send_still_appends_footer_over_a_bare_self_authored_disclaimer(monkeypatch, tmp_path):
+    # Regression test for issue #82: a bare self-authored disclaimer with
+    # no Sources list attached (partial, unreliable compliance with
+    # "don't write your own footer") used to be misread as "footer already
+    # present" via a plain `DISCLAIMER in ...` check on the model's own
+    # text, silently discarding this turn's real, captured citations. This
+    # branch had zero coverage before #82's investigation found it shares
+    # staged_skills.py::compose_and_save's exact same bug shape.
+    from engine.sources_footer import DISCLAIMER
+
+    @dataclass
+    class TextBlock:
+        text: str
+
+    @dataclass
+    class ToolUseBlock:
+        id: str
+        name: str
+        input: dict
+
+    @dataclass
+    class ToolResultBlock:
+        tool_use_id: str
+        content: object = None
+        is_error: bool | None = None
+
+    @dataclass
+    class AssistantMessage:
+        content: list
+
+    @dataclass
+    class UserMessage:
+        content: list
+
+    @dataclass
+    class ResultMessage:
+        subtype: str
+        result: str | None = None
+
+    bare_disclaimer_reply = f"RELIANCE is trading flat today.\n\n---\n{DISCLAIMER}\n"
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "yfinance", "as_of": "2026-08-18", "data": {}}')
+        ]),
+        AssistantMessage(content=[TextBlock(text=bare_disclaimer_reply)]),
+        ResultMessage(subtype="success", result=bare_disclaimer_reply),
+    ]
+
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            for message in messages:
+                yield message
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+    workspace_root = tmp_path / "ws"
+    (workspace_root / "data").mkdir(parents=True)
+
+    harness = cas.ClaudeAgentSDKHarness()
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+
+    result = asyncio.run(harness.run("what's the RELIANCE quote?", tools, workspace_root=workspace_root))
+
+    assert result.ok is True
+    assert "**Sources**" in result.text
+    assert "india_price" in result.text
+
+
+def test_send_skips_footer_when_model_already_wrote_a_full_sources_section(monkeypatch, tmp_path):
+    # Complementary case: a self-authored block that actually did the
+    # citation job itself (a real "**Sources**" heading, not just a bare
+    # disclaimer sentence) should still suppress the real footer, since
+    # appending on top of that would be the visible duplicate issue #27
+    # is about.
+    from engine.sources_footer import DISCLAIMER
+
+    @dataclass
+    class TextBlock:
+        text: str
+
+    @dataclass
+    class ToolUseBlock:
+        id: str
+        name: str
+        input: dict
+
+    @dataclass
+    class ToolResultBlock:
+        tool_use_id: str
+        content: object = None
+        is_error: bool | None = None
+
+    @dataclass
+    class AssistantMessage:
+        content: list
+
+    @dataclass
+    class UserMessage:
+        content: list
+
+    @dataclass
+    class ResultMessage:
+        subtype: str
+        result: str | None = None
+
+    self_cited_reply = f"RELIANCE is trading flat today.\n\n---\n**Sources**\n- self-cited\n\n{DISCLAIMER}\n"
+    messages = [
+        AssistantMessage(content=[
+            ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={"symbols": ["RELIANCE"]}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "yfinance", "as_of": "2026-08-18", "data": {}}')
+        ]),
+        AssistantMessage(content=[TextBlock(text=self_cited_reply)]),
+        ResultMessage(subtype="success", result=self_cited_reply),
+    ]
+
+    class _FakeClient:
+        async def connect(self):
+            pass
+
+        async def get_mcp_status(self):
+            return {"mcpServers": []}
+
+        async def disconnect(self):
+            pass
+
+        async def query(self, prompt):
+            pass
+
+        async def receive_response(self):
+            for message in messages:
+                yield message
+
+    monkeypatch.setattr(cas, "ClaudeSDKClient", lambda options: _FakeClient())
+    workspace_root = tmp_path / "ws"
+    (workspace_root / "data").mkdir(parents=True)
+
+    harness = cas.ClaudeAgentSDKHarness()
+    tools = ToolConfig(mcp_servers=FAKE_MCP_SERVERS, guardrail=GuardrailPolicy(), skills=[])
+
+    result = asyncio.run(harness.run("what's the RELIANCE quote?", tools, workspace_root=workspace_root))
+
+    assert result.ok is True
+    assert result.text.count("**Sources**") == 1
+    assert result.text.count(DISCLAIMER) == 1
+
+
 def test_send_records_completed_denied_and_no_result_tool_calls(monkeypatch, tmp_path):
     # Issue #47: a denied/error ToolResultBlock used to be dropped on the
     # spot (`if ... or block.is_error: continue`) before anything looked at

@@ -31,7 +31,7 @@ from typing import Any
 
 from engine import skills
 from engine.harnesses.base import Harness, ToolConfig
-from engine.sources_footer import DISCLAIMER, build_footer
+from engine.sources_footer import build_footer, has_self_authored_sources_section
 from engine.time_ist import today_ist
 from engine.tool_audit import append_tool_calls, new_audit_log_path
 from engine.workspace import augment_prompt_with_workspace
@@ -472,13 +472,16 @@ def compose_and_save(
     skill declares no `.md` expected output — mirrors
     `engine/interactive.py`'s `_save_composed_outputs`.
 
-    Skips appending the footer at all if `final_text` already contains our
-    own `DISCLAIMER` text — i.e. the compose stage wrote a closing
-    footer/disclaimer of its own despite the skill's `SKILL.md` saying not
-    to. That instruction isn't reliably followed (issue #27 found the same
-    class of unreliable prose-only compliance already documented for #31),
-    so this is the structural backstop: better a stray self-authored
-    footer than a visible duplicate of the real one.
+    Skips appending the real footer only if `final_text` already contains
+    a self-authored `"**Sources**"` citation section — i.e. the compose
+    stage actually did the citation job itself despite the skill's
+    `SKILL.md` saying not to bother. A bare self-authored disclaimer
+    sentence with no citations attached does *not* suppress the real
+    footer (issue #82: that used to be checked via bare `DISCLAIMER in
+    content`, which silently discarded every real citation whenever the
+    compose stage wrote a disclaimer without a Sources list — a worse
+    outcome than the visible duplicate disclaimer sentence this now
+    risks instead).
 
     Issue #66: if `final_text` contains `_FINAL_CONTENT_MARKER`, only the
     text after it is treated as the real deliverable — everything before
@@ -499,7 +502,7 @@ def compose_and_save(
             f"{_FINAL_CONTENT_MARKER!r} marker — saving its full turn text "
             "verbatim, which may include tool-recovery narration (issue #66)."
         )
-    footer = "" if DISCLAIMER in content else build_footer(
+    footer = "" if has_self_authored_sources_section(content) else build_footer(
         all_captures, as_of=today_ist(), workspace_root=workspace_root
     )
     full_text = content + footer

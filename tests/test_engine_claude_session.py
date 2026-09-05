@@ -241,14 +241,19 @@ def test_send_appends_no_disclaimer_for_tool_calls_when_workspace_root_unset(tmp
     assert DISCLAIMER not in full_text
 
 
-def test_send_skips_footer_when_model_already_wrote_the_disclaimer(tmp_path):
-    """Every skill's SKILL.md says not to compose its own closing footer —
-    but that's a prose instruction the model doesn't reliably follow
-    (issue #27, live-verified: a real thesis-tracker run still wrote its
-    own disclaimer despite the updated wording). Appending the engine's own
-    footer on top would just create the exact visible duplicate #27 is
-    about, so a self-authored disclaimer must suppress the engine's own,
-    not stack with it."""
+def test_send_appends_the_real_footer_over_an_incomplete_self_authored_citation(tmp_path):
+    """Regression test for issue #82. This used to be named
+    test_send_skips_footer_when_model_already_wrote_the_disclaimer and
+    asserted the opposite: that a bare `DISCLAIMER` sentence plus a loose
+    inline "**Sources:** ..." mention (not a real, itemized citation
+    section) was enough to suppress the engine's own footer entirely.
+    That's exactly the bug #82 found live in staged_skills.py's twin of
+    this check: the model's own text only has to *resemble* compliance,
+    not actually complete the citation job, for the whole real Sources
+    list to be silently discarded — a duplicated disclaimer sentence is
+    an acceptable cost next to that, so the real footer must still be
+    appended whenever the model's text lacks a genuine `"**Sources**"`
+    section."""
     from engine.sources_footer import DISCLAIMER
 
     messages = [
@@ -266,8 +271,35 @@ def test_send_skips_footer_when_model_already_wrote_the_disclaimer(tmp_path):
     chunks = _drain(session, "track a thesis", workspace_root=tmp_path)
 
     full_text = "".join(chunks)
+    assert full_text.count(DISCLAIMER) == 2
+    assert "**Sources**" in full_text
+    assert "india_price.get_quote" in full_text
+
+
+def test_send_skips_footer_when_model_wrote_a_genuine_sources_section(tmp_path):
+    """Complementary case: a self-authored block that actually contains
+    the real `"**Sources**"` heading (not just a loose mention) still
+    suppresses the engine's own footer, since appending on top of that
+    would be the exact visible duplicate issue #27 is about."""
+    from engine.sources_footer import DISCLAIMER
+
+    messages = [
+        AssistantMessage(content=[
+            TextBlock(text=f"Thesis saved.\n\n---\n**Sources**\n- india_price.get_quote\n\n{DISCLAIMER}\n"),
+            ToolUseBlock(id="t1", name="mcp__india_price__get_quote", input={}),
+        ]),
+        UserMessage(content=[
+            ToolResultBlock(tool_use_id="t1", content='{"source": "x", "as_of": "2026-08-18", "data": []}')
+        ]),
+        ResultMessage(subtype="success", result="done"),
+    ]
+    session = ClaudeSession(_FakeClient(messages))
+
+    chunks = _drain(session, "track a thesis", workspace_root=tmp_path)
+
+    full_text = "".join(chunks)
     assert full_text.count(DISCLAIMER) == 1
-    assert full_text.count("**Sources") == 1
+    assert full_text.count("**Sources**") == 1
 
 
 def test_send_appends_no_footer_when_nothing_captured(tmp_path):

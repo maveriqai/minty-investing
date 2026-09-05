@@ -82,6 +82,31 @@ FOOTER_MARKER = "\n\n---\n**Sources**"
 DISCLAIMER_ONLY_FOOTER = f"\n\n---\n*{DISCLAIMER}*\n"
 
 
+def has_self_authored_sources_section(text: str) -> bool:
+    """True only if `text` already contains a `"**Sources**"`-headed
+    citation list the model wrote itself — not just a bare disclaimer
+    sentence with no citations attached.
+
+    Quick fix for issue #82: both `staged_skills.py::compose_and_save` and
+    `claude_agent_sdk.py::send()` used to gate their real-footer append on
+    `DISCLAIMER in text` alone, so a self-authored bare disclaimer (no
+    Sources list — partial, unreliable compliance with "don't write your
+    own footer", the same prose-reliability failure #27/#31 already
+    documented) got misread as "footer already present," and the entire
+    turn's real, captured citation list was silently discarded. Checking
+    for the `"**Sources**"` heading instead means only a self-authored
+    block that actually did the citation job itself skips the real
+    append — a bare disclaimer alone still gets the real footer appended
+    after it (a possible duplicate disclaimer sentence, which is a purely
+    cosmetic cost next to losing the Sources list entirely).
+
+    This is still a heuristic, not a structural fix — see issue #86 for
+    the proper redesign (make the append itself a pure function of
+    `captures`, independent of the model's own text).
+    """
+    return "**Sources**" in text
+
+
 def _label(mcp_server: str) -> str:
     return _SOURCE_LABELS.get(mcp_server, mcp_server)
 
@@ -138,4 +163,10 @@ def build_footer(captures: list[tuple[str, str, Path]], *, as_of: str, workspace
     return FOOTER_MARKER + "\n" + "\n".join(lines) + f"\n\n*{DISCLAIMER}*\n"
 
 
-__all__ = ["DISCLAIMER", "DISCLAIMER_ONLY_FOOTER", "FOOTER_MARKER", "build_footer"]
+__all__ = [
+    "DISCLAIMER",
+    "DISCLAIMER_ONLY_FOOTER",
+    "FOOTER_MARKER",
+    "build_footer",
+    "has_self_authored_sources_section",
+]
