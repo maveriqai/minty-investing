@@ -166,6 +166,74 @@ in a *later*, unrelated session. If this whole chain works without
 re-explaining context at any step, that's the product working, not just
 its parts.
 
+## M. Open-ended research (research-discovery, staged gather)
+
+The one skill with no coverage anywhere in either checklist file, despite
+being a real, staged (`docs/staged-skill-execution-design.md`) skill.
+
+| # | Action | Expected result |
+|---|--------|------------------|
+| M1 | `you> what's driving FII outflows this week` (or any question with no clean single sector/symbol match) | Routes to `research-discovery`, not `screen-indian-stocks` or `red-flag-scan` |
+| M2 | Same turn, check the session transcript / tool-call log | Shows a `run_staged_research-discovery-gather` call — confirms the plan → staged-gather handoff actually happens, not one unbroken turn |
+| M3 | End of the reply | Output lands in `workspace/research/{sectors,stocks,themes}/<key>.md` (the read-merge-rewrite bucket), not `workspace/results/` |
+| M4 | Later (same or new session), ask a related follow-up on the same topic | Recaps "already known" from the existing research file first, gathers only what's new — this is exactly what happened live in today's FMCG follow-up (see `workspace/sessions/2026-09-04T10-21-02.md`), worth reproducing deliberately here |
+| M5 | Continue M1's session: once `research-discovery` surfaces a specific name (not just a sector/theme), `you> track a thesis on <that name>` | Confirms `research-discovery` → `thesis-tracker` handoff works, not just `screen-indian-stocks` → `thesis-tracker` (§G/§L only chain from the latter) — check `theses/<TICKER>.md` references the research-discovery finding as its grounding, not a bare user-stated pillar with no research trail behind it |
+| M6 | (Cross-reference, not a new run) `you> what have you already researched about <a sector/stock covered earlier in this session>` — and separately, the same question about something never touched | Pulled in from `docs/manual-test-live-findings-checklist.md` §J8 (already PASS, 2026-09-03): confirms the model actually `Glob`s/`Read`s `research/**/*.md`, `theses/*.md`, `notes.md` before answering, rather than answering from conversation memory — the read-back half of M4's read-merge-rewrite loop. Re-run live here rather than just cited, since M1–M5 above give it fresh material to search over. |
+
+## N. Staged execution actually splits, not just declared in frontmatter
+
+Both `morning-digest` and `research-discovery-gather` declare `stages:` —
+confirm the split is real, not just present in the file.
+
+| # | Action | Expected result |
+|---|--------|------------------|
+| N1 | `you> give me the morning digest` on the full real account | Tool-call log / session transcript shows evidence of multiple stage sessions internally (this is the exact mechanism built after a 96-holding digest silently dropped Sources citations in one ~31-minute turn) |
+| N2 | Final composed reply | One coherent Sources footer despite being assembled from several internal stage sessions — staging should be invisible to the user-facing output |
+
+## O. MCP surface breadth — tools with no live-test coverage yet
+
+Not release-blocking individually, but these exist and have never been
+exercised outside unit tests. Worth one live pass each.
+
+| # | Action | Expected result |
+|---|--------|------------------|
+| O1 | `you> is the market open right now` | `india_price.get_market_status` — correct open/closed state, exchange-holiday aware |
+| O2 | `you> what's the current repo rate` | `india_macro.get_policy_rates` |
+| O3 | `you> is <a date> a trading holiday` / "when's the next NSE holiday" | `india_macro.get_exchange_holidays` |
+| O4 | `you> pull up the actual text of <a recent announcement on a held stock>` | `india_filings.get_filing_document` (issue #25) — real extracted document text, not just the headline |
+| O5 | `you> any bulk or block deals on <SYMBOL> recently` | `india_filings.get_bulk_block_deals` |
+| O6 | Ask about a stock by company name instead of a clean ticker (e.g. "tata motors" not "TATAMOTORS") | `india_price.resolve_symbol` disambiguates rather than failing |
+| O7 | `you> what's <SYMBOL>'s price on BSE` (explicit BSE ask) | Uses `.BO` suffix per convention — NSE stays the default everywhere else |
+| O8 | `you> show me my open orders` / `you> any pending GTTs` / `you> what are my margins` | The *read-only* order/margin tools (`get_orders`, `get_order_history`, `get_gtts`, `get_positions`, `get_margins`, `get_mf_holdings`) still work — direct contrast with E's guardrail, confirming the six blocked tools are a narrow carve-out, not a blanket "no order-related tools" block |
+
+## P. India market-convention correctness (spot-check)
+
+Presence of a number isn't the same as it being formatted/labeled
+correctly per `docs/vision.md`'s conventions.
+
+| # | Action | Expected result |
+|---|--------|------------------|
+| P1 | Any reply with a rupee figure | ₹X,XXX cr / ₹X lakh — never ₹X.XXB |
+| P2 | Any reply referencing a quarter | Fiscal label (e.g. "Q2 FY27" for Jul–Sep 2026), never a calendar quarter |
+| P3 | A fundamentals-heavy reply (red-flag-scan or screen-indian-stocks touching ROE) pulling from both `india_price` and `india_screener` | States which source a figure is from when they'd disagree (up to 5.4pp apart by methodology, `docs/screener-integration-design.md` §2) — never presents one as the universal number |
+
+## Q. Off-topic / scope guard
+
+| # | Action | Expected result |
+|---|--------|------------------|
+| Q1 | `you> what's a good recipe for dal` (or any clearly non-investing question) | Declines/redirects gracefully — doesn't hallucinate an answer or invoke a skill on nonsense input. (This is the intentional version of the same check that fired live this session on a garbled `"fsdf"` type-ahead — see `workspace/sessions/` — worth reproducing deliberately.) |
+| Q2 | `you> should I buy gold instead of stocks` (investing-adjacent, outside NSE/BSE equities scope) | Answers honestly within scope or says explicitly what's out of scope, rather than guessing |
+
+## R. `/feedback` (issues #73, #81)
+
+Already has its own dedicated, thorough live-test section —
+`docs/manual-test-live-findings-checklist.md` §K (K1–K6 + K-bonus). Only
+re-run if `engine/feedback.py`/`engine/feedback_issue.py` changed since
+2026-09-03; otherwise treat as still valid, don't duplicate here. One
+note: K-bonus's "filed as issue #80" is now historical — that report's
+two findings were later split into #80 (startup input, kept in v0.1.0)
+and #81 (feedback edit, deferred to v0.1.1).
+
 ## Status (2026-09-02) — v0.1.0 release-readiness pass
 
 Full re-run against the real connected account (96 holdings), gating
@@ -230,3 +298,205 @@ Also separately: a full fresh `git clone` → `uv sync` → build
 instruments db → `pytest` pass (568/568) confirmed the public repo's
 documented first-run setup path works end to end for a stranger, not
 just the existing dev install.
+
+## Status (2026-09-04) — §M–R live pass, real connected account
+
+Live run against the real account (96 holdings) covering the gaps §A–L's
+2026-09-02 pass didn't reach. All headless via `engine.run` except §D3/D4
+(needed the real interactive REPL — driven via a pty script since it
+requires a mid-session `y` confirm). §B was re-confirmed live as a side
+effect of a genuine mid-session Kite re-login. Section by section:
+
+- **A** (fresh install/onboarding) — Pass, all three rows, closed out
+  using `MINTY_WORKSPACE=<name>` (`engine/workspace.py`'s documented,
+  git-ignored `.dev-workspaces/` sandbox mechanism — never a
+  conversational command, purely for exactly this kind of isolated
+  live-verification, so no risk to the real `workspace/`). Ran `minty`
+  fresh against a never-before-used sandbox name
+  (`freshinstall_2026-09-04`) via a pty script. A1: exact banner match —
+  "Claude account already connected." → "Minty — connected.", no
+  `/workspace <name>` mention anywhere. A2: showed the "Zerodha not
+  connected yet" fallback line rather than "Holdings found" — correct,
+  not a bug: `kite_status.py`'s `_newest_holdings_date` is deliberately
+  scoped to the *active* workspace's own `data/holdings_*.json`, so a
+  brand-new sandbox with a real, genuinely-connected identity anchor but
+  zero local holdings snapshots falls through to this line exactly as
+  `kite_status.py`'s own docstring documents ("the one state this binary
+  check doesn't cleanly cover ... falls through to the 'not connected'
+  line, since the practical next action is the same either way") — live
+  confirmation of a previously only-read-from-source edge case. A3:
+  confirmed `.dev-workspaces/freshinstall_2026-09-04/{data,results}`
+  already existed 2 seconds after the process started, before any input
+  was typed.
+- **B** (Kite connect flow) — Pass, reconfirmed live. Session had expired
+  mid-testing (real re-login required, not simulated); the reconnect
+  flow stated the read-only guarantee before the link, showed Kite's own
+  AI-risk warning, and B4's account-detail confirmation (name/User
+  ID/broker/email/exchanges) came back correct from a real
+  `get_profile` call.
+- **D1–D4** (memory extraction) — Pass, full loop including a genuine
+  REPL-driven confirm. D1 (explicit remember) and D2 (staged candidate)
+  each needed a second attempt with clearer phrasing before landing
+  cleanly — not #23 flakiness, just ambiguous first-attempt wording
+  (a question-shaped D2 prompt correctly didn't stage). D3/D4 confirmed
+  end-to-end via pty: review surfaced before the `you>` prompt with the
+  exact #65 framing, `y` correctly wrote to `notes.md`, staging file
+  cleared, transcript labeled `## system (...)` then `## you (...)` as
+  documented. One self-inflicted near-miss: an earlier pty run was
+  killed too early (30s wait, turn needed ~40s) mid-confirm, losing that
+  candidate — a test-harness timing bug, not a product bug, but a real
+  reminder that a killed process during a review-turn confirm silently
+  loses the candidate (already cleared from staging, write never
+  completed) — worth a look as a robustness question, not filed as an
+  issue on the strength of this alone.
+- **E** (guardrail) — Pass. Clean refusal on "sell all my RELIANCE
+  shares," explained the structural limit, offered legitimate
+  alternatives instead.
+- **F** (cross-session persistence) — Pass. Correctly recalled a D1 note
+  and explicitly distinguished it from a separately-worded, similarly-
+  themed rule rather than conflating them.
+- **G** (research loop) — Pass. Fresh sector (cement, never screened
+  before) → JSWCEMENT red-flag-scan → thesis-tracker chain, all three
+  landed as separate dated files. Bonus: thesis-tracker correctly
+  refused to write a bracketed "[MANUAL TEST ENTRY]" synthetic thesis
+  into `theses/JSWCEMENT.md`, treating it as untrusted/synthetic content
+  rather than a genuine request — real evidence of instruction-source
+  discipline, not just a hoped-for property. One false alarm during
+  testing: a rapid-fire background retry of the thesis-tracker step
+  claimed no prior research existed seconds after the red-flag-scan
+  wrote it — resolved as a race in the test harness (launched the next
+  step before the prior step's write had settled), not reproducible on
+  retry once files had a few seconds to land.
+- **K** (portfolio-wide health check) — Pass on K1/K2 (hand-verified:
+  CUPID ₹17,03,400 / ₹65,57,171 = 25.98%, exact match to the reported
+  figure). **K3 surfaces a real, confirmed gap — filed as an issue (see
+  below):** `theses/CUPID.md` already explains the ₹0 avg-price mystery
+  (a 2026-03-09 bonus-share allotment), but health-check has now
+  flagged that same "unresolved, confirm with broker" line across six
+  consecutive checks without ever consulting the thesis file that
+  already answers it. portfolio-health-check and thesis-tracker are
+  confirmed siloed, not hypothetical.
+- **M** (research-discovery, new section) — M1–M4 effectively
+  demonstrated live this morning via an unscripted FMCG follow-up
+  (`workspace/sessions/2026-09-04T10-21-02.md`): correctly recapped
+  yesterday's sector note before gathering only what changed. **M6 pass
+  (re-run later this pass, both halves):** asked "what have you already
+  researched about JSWCEMENT and the construction materials sector"
+  (topics this same pass had just written) and got back an accurate,
+  correctly-sourced summary of both `research/sectors/construction-
+  materials.md` and `research/stocks/JSWCEMENT.md`, explicitly noting
+  no thesis file existed yet rather than inventing one; a parallel ask
+  about HDFC Life Insurance (never touched, though its symbol appears
+  incidentally inside a raw `data/candidates_financial-services_2026-09-
+  01.json` screen capture) correctly reported nothing on record —
+  confirming the model reads back from `research/**/*.md`/`theses/*.md`
+  rather than pattern-matching raw data captures or conversation memory.
+  **M5 fails — filed as an issue (see below):** ran research-discovery
+  live on "what's behind the weakness in QSR and restaurant stocks this
+  year" (511s staged gather, $3.12, 6 stages), which profiled six named
+  companies in detail and saved to
+  `research/sectors/qsr-restaurant-weakness.md` — including WESTLIFE's
+  SSSG/ROE figures. A fresh `you> track a thesis on WESTLIFE` turn
+  immediately after replied "No existing thesis or research note for
+  WESTLIFE ... this is a fresh start," with no mention of the brief
+  written minutes earlier. Root-caused: `thesis-tracker/SKILL.md`'s
+  "check for a prior research note" step only ever reads
+  `research/stocks/<SYMBOL>.md` — it has no path to
+  `research/sectors/*.md` or `research/themes/*.md`, so a sector-level
+  research-discovery brief (the most natural place a *new* name first
+  gets surfaced) is invisible to it. The already-working G/L chain
+  (`screen-indian-stocks` → `red-flag-scan` → `thesis-tracker`) only
+  works because `red-flag-scan` happens to write a per-stock file —
+  research-discovery frequently won't. Same class of gap as #83.
+- **N** (staged execution splits for real, new section) — N1 pass:
+  `[stage]` diagnostic lines confirmed all 4 of `morning-digest`'s
+  declared stages actually ran as separate sessions (`portfolio_and_market`,
+  `surveillance`, `news_and_materiality`, `compose` — 316.5s, $1.98,
+  14,446 tok total). **N2 fails — filed as an issue (see below):** the
+  final composed output, including the file `compose_and_save` writes
+  directly to `results/digest_<date>.md`, shipped with the bare SEBI
+  disclaimer but no itemized Sources footer at all, despite real
+  captures across all 4 stages. Root-caused, not just observed: the
+  compose stage wrote its own disclaimer text against its `SKILL.md`'s
+  explicit instruction not to (known-unreliable prose compliance, same
+  class as #27/#31), and `compose_and_save`'s dedup check only tests
+  "does the model's text contain disclaimer text," not "did it write a
+  *complete* footer with a Sources list" — so it silently drops the
+  entire aggregated-across-stages Sources list on a false-positive
+  dedup match. Reproduced twice independently (this run, and an earlier
+  today interactive-REPL digest run at 12:24 IST) — not a one-off.
+- **O** (MCP surface breadth, new section) — O1/O2/O3/O6/O7/O8 pass
+  cleanly (market status, policy rates, exchange holidays, symbol
+  resolution — including a genuinely hard post-demerger TATAMOTORS
+  case, correctly split into TMPV/TMCV — explicit BSE pricing, and
+  read-only order/GTT/margin access all confirmed working, directly
+  contrasting §E's blocked six). O4 pass, and a genuine bonus finding:
+  fetching the actual CIPLA filing text caught that an earlier digest's
+  headline-only characterization ("substantial-shareholding disclosure")
+  was wrong — it's actually an NCLT merger-absorption notice for
+  Inzpera Healthsciences — proving the deep-fetch feature's real value,
+  not just its mechanics. **O5 surfaces an external outage — filed as an
+  issue (see below):** NSE's bulk/block-deal endpoint has been
+  returning 503s since early July 2026; handled correctly (honest gap,
+  no hallucination, no crash) but worth tracking since it's been down
+  for two months.
+- **P** (India convention correctness, new section) — All three pass.
+  P1 (₹ cr/lakh formatting) and P3 (ROE source disclosure — G1
+  explicitly stated Screener.in was used since yfinance returned null
+  for every cement candidate) confirmed in passing via G/K's real
+  output. **P2** (fiscal quarter labeling) separately spot-checked live:
+  "when is ASIANPAINT's next quarterly results date" correctly labeled
+  the last-reported quarter "Q1 FY27 (quarter ended 30 June 2026)" and
+  the upcoming one "Q2 FY27 (quarter ended 30 September 2026)" —
+  April–March fiscal year throughout, no calendar-quarter phrasing
+  anywhere in the reply.
+- **Q** (off-topic guard, new section) — Pass, found already live-tested
+  by the user independently this session
+  (`workspace/sessions/2026-09-04T13-14-27.md`): "how is the weather
+  today" and "how to learn python" both declined gracefully with an
+  on-scope redirect.
+- **H** (thesis survives across sessions, incl. disconfirming evidence)
+  — Pass, run against the real CUPID thesis (a genuine multi-year
+  holding, not a synthetic test position). Step 2 (reads and loads the
+  existing file rather than starting fresh): confirmed — every pillar,
+  risk, and the user's own stated no-target/10%-drawdown exit rule
+  carried over verbatim. Step 3 (honest, not optimistic, tracking): the
+  live re-check surfaced a genuinely new data point (a Reg 29(2) SAST
+  filing — the promoter's Sep-1 open-market purchase) and the reply
+  folded it in as a modest positive without inflating conviction beyond
+  "Medium" — the same file's existing Risks table (SEBI warning letter,
+  auditor change, 276x P/E, 25%+ concentration) is itself real evidence
+  this skill already records disconfirming signals plainly rather than
+  smoothing them over, so this counts as satisfied even though today's
+  fresh evidence happened to be positive, not negative — genuine market
+  data isn't scriptable to order. Step 4 (deterministic math, not
+  prose): confirmed directly —
+  `workspace/results/thesis_CUPID_2026-09-04.json` (written same
+  minute) contains `move_pct: 11697.92`, `days_elapsed: 1270`, matching
+  the reply's figures exactly, `source: "thesis_math.py"`.
+
+**Not run this pass:** §I (mismatched account, still untestable,
+unchanged), §R (`/feedback`, still valid from 2026-09-03, not re-run).
+
+**Issues filed from this pass:** #82 (staged-skill Sources footer
+silently dropped), #83 (portfolio-health-check/thesis-tracker siloed),
+#84 (NSE bulk/block-deal endpoint down since July), #85
+(thesis-tracker never reads `research/sectors/`or `research/themes/`
+notes, only `research/stocks/`). No new issues from §H/M6 — both
+passed cleanly.
+
+**A note on §M5's test methodology:** the first two live attempts used a
+pty-driven multi-turn REPL session (matching §D3/D4's technique) to
+genuinely chain research-discovery → thesis-tracker in one continuous
+session; both failed for tooling reasons, not product reasons — first a
+wrong Python interpreter (system Python instead of the `uv`-managed
+venv), then a timing bug where the harness script mistook
+research-discovery's own real completion (a fresh `you> ` prompt) for
+the *next* turn's completion, sending `exit` before thesis-tracker's
+turn could actually run. Given research-discovery's finding was already
+persisted to `workspace/research/sectors/qsr-restaurant-weakness.md`
+regardless of session boundaries — and this workspace is deliberately
+designed around cross-session file-based grounding, not conversation
+memory (the same property M4/M6 already validate) — the handoff was
+instead verified with a fresh headless call in a new session, which is
+arguably the more representative real-world path anyway.
