@@ -11,6 +11,36 @@ for review. Everything below is built and live-verified, including a full
 fresh-clone-to-first-digest run — see "Known gaps" at the end for the
 remaining rough edges (none block a normal first run).
 
+## Why
+
+You don't trade every day, but a few things nag at you: do you still know
+why you bought that stock two years ago? When a headline breaks about a
+name you hold, do you check the actual filing — or scroll past and hope?
+When did you last actually look at your whole portfolio, not just the day
+it was down 5%?
+
+Most people skip all of this — not because it doesn't matter, but because
+it takes real time and the right information isn't in one place. Minty is
+built for those moments, not for daily trading. Just ask, in plain
+English:
+
+- **Research on demand** — a hunch, a tip, a sector in the news: *"what's
+  driving FII outflows," "should I be worried about X given the rupee."*
+  Minty runs a real multi-angle pass across news, filings, and
+  fundamentals and comes back with an actual brief, not a guess.
+- **Capture a thesis once** — *"track a thesis on RELIANCE."* Minty
+  scorecards it against reality every time you check back, so you don't
+  have to remember what you believed.
+- **Check a holding for red flags** — *"any red flags on RELIANCE"* —
+  before a headline turns into a surprise.
+- **Review the whole portfolio** — *"how's my portfolio doing, am I too
+  concentrated in anything"* — without building a spreadsheet yourself.
+
+It's safe and simple by design: connect your real Zerodha account and it
+only ever reads, never trades. Every number it states is computed and
+cited to a real source, and everything runs on your own machine. See
+[Available skills](#available-skills) below for the full list.
+
 ## Prerequisites
 
 New to any of these? Install in this order — each step includes a command
